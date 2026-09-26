@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "homo-front-tracking"
+version = "0.2.0"
+description = "Dafermos polygonal-flux front tracking for scalar conservation laws"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.7"]
+notebook = ["matplotlib>=3.7", "ipywidgets>=8,<9", "jupyterlab>=4,<5", "nbclient>=0.10", "nbformat>=5"]
+
+# src layout: an editable install exposes only the import package `fronttrack`,
+# never the example scripts or the legacy shim modules in the repository root.
+[tool.setuptools.packages.find]
+where = ["src"]
