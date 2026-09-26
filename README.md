@@ -1,4 +1,4 @@
-# Dafermos front tracking for scalar conservation laws
+# Dafermos' front tracking for scalar conservation laws
 
 This repository solves the homogeneous, one-dimensional scalar Cauchy problem
 
