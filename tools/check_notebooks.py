@@ -15,6 +15,25 @@ from nbclient import NotebookClient
 from jupyter_client import KernelManager
 from jupyter_client.kernelspec import KernelSpecManager
 
+WIDGET_MIME = 'application/vnd.jupyter.widget-view+json'
+WIDGET_NOTE = ('Interactive widget: run this notebook in Jupyter or Colab to use it. '
+               'Viewers without a kernel (GitHub, VS Code preview) cannot display it.\n')
+
+
+def strip_volatile(nb):
+    """Drop output that changes on every run, so a rebuild is byte-identical.
+
+    A saved widget output is only a random model id pointing into widget state
+    that is stored in the metadata, again under random ids. Neither renders
+    without a live kernel, so both are replaced by a short note.
+    """
+    nb.metadata.pop('widgets', None)
+    for cell in nb.cells:
+        if cell.cell_type == 'code' and any(WIDGET_MIME in o.get('data', {}) for o in cell.outputs):
+            cell.outputs = [o for o in cell.outputs if WIDGET_MIME not in o.get('data', {})]
+            cell.outputs.append(nbformat.v4.new_output('stream', name='stdout', text=WIDGET_NOTE))
+
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--write', action='store_true')
 args = parser.parse_args()
@@ -58,13 +77,16 @@ if 'selector' in globals():
         manager = KernelManager(kernel_name='fronttrack-check',
                                 kernel_spec_manager=KernelSpecManager(kernel_dirs=[str(kernel.parent)]))
         try:
-            NotebookClient(nb, km=manager, timeout=180, resources={'metadata': {'path': str(work)}}).execute()
+            # record_timing=False: no per-cell execution timestamps in the saved file.
+            NotebookClient(nb, km=manager, timeout=180, record_timing=False,
+                           resources={'metadata': {'path': str(work)}}).execute()
         finally:
             if manager.has_kernel:
                 manager.shutdown_kernel(now=True)
         nb.cells.pop()
         nbformat.validate(nb)
         if args.write:
+            strip_volatile(nb)
             nbformat.write(nb, path)
             if path.name.startswith('02_'):
                 png = next(output['data']['image/png']

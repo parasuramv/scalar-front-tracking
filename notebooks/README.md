@@ -71,9 +71,17 @@ Files panel lets readers download PNG/PDF figures and compressed NumPy data.
 ```bash
 python tools/build_notebooks.py
 python tools/check_notebooks.py --write
+python tools/build_theory_notebooks.py --execute
 ```
 
 The first command refreshes the source snapshot and clears outputs. The second
-executes both notebooks in fresh kernels outside the checkout, exercises the
-widget callbacks, and saves output figures. It requires the notebook dependencies.
-The embedded source fingerprint records the solver snapshot used at generation.
+executes 01 and 02 in fresh kernels outside the checkout, exercises the
+widget callbacks, and saves output figures. The third rebuilds 03 and 04 from
+their build script (edit that script, never the `.ipynb`). All three require the
+notebook dependencies. The embedded source fingerprint records the solver
+snapshot used at generation.
+
+Saved notebooks contain no widget state, execution timestamps or random cell
+ids, so rebuilding unchanged sources in the same environment reproduces them
+byte for byte, and `git diff` after a rebuild shows only real changes. Outside a
+live kernel, widget cells show a note (01, 02) or a static preview (03, 04).
