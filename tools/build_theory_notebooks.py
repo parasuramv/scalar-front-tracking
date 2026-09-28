@@ -8,7 +8,8 @@ cell looks for ``fronttrack`` in this order:
 3. in Colab only, the same install authenticated with a Colab secret named
    ``GITHUB_TOKEN`` (a fine-grained, read-only token for this repository).
 
-If all three fail it stops with an explanation instead of a pip traceback.
+If all three fail it stops with an explanation instead of a pip traceback, and
+distinguishes a missing secret from one the notebook was not allowed to read.
 Execute and save outputs with:
 
     python tools/build_theory_notebooks.py --execute
@@ -43,17 +44,22 @@ if importlib.util.find_spec("fronttrack") is None:
         _pip_install(f"git+https://github.com/{{REPO}}.git")
     except subprocess.CalledProcessError:
         token = None
+        hint = "add a GITHUB_TOKEN secret with read access to the repository"
         if "google.colab" in sys.modules:
             from google.colab import userdata
             try:
                 token = userdata.get("GITHUB_TOKEN")
-            except Exception:  # secret missing, or notebook access not granted
-                pass
+            except Exception as err:
+                # Two different failures: no such secret, or the secret exists but
+                # this notebook's access toggle is off. Tell the user which.
+                if type(err).__name__ == "NotebookAccessError":
+                    hint = ("switch on notebook access for the GITHUB_TOKEN secret "
+                            "(key icon in the left sidebar)")
         if not token:
             raise RuntimeError(
                 f"Could not install fronttrack from github.com/{{REPO}} (the repository "
-                "may still be private). Run this notebook from a checkout, or in Colab "
-                "add a GITHUB_TOKEN secret with read access to the repository.") from None
+                f"may still be private). Run this notebook from a checkout, or in Colab "
+                f"{{hint}}.") from None
         try:
             _pip_install(f"git+https://x-access-token:{{token}}@github.com/{{REPO}}.git")
         except subprocess.CalledProcessError:
