@@ -107,12 +107,17 @@ $$
  s_{ab}=\frac{f(u_b)-f(u_a)}{u_b-u_a}.
 $$
 
-The monotone-chain hull in `riemann.py` removes a middle node whenever the two
-successive chord slopes violate the requested convexity or concavity. Collinear
-nodes are removed too, producing a single contact discontinuity. The resulting
-wave list is ordered in **physical space**, with nondecreasing speeds in both
-orientations of the initial jump. Speed ordering alone is not an entropy proof;
-the envelope condition is essential, especially for nonconvex fluxes.
+The monotone-chain hull in `riemann.py` keeps a middle node only if it lies
+strictly on the envelope side of the chord joining its neighbours: below it for
+the lower convex envelope, above it for the upper concave one. "Strictly" means
+by more than a roundoff allowance, $16\varepsilon$ times the size of the flux
+values and slope in the test, so collinear nodes are always removed and one chord
+gives one front, even when rounding makes the nodes look slightly convex (for
+$u^3$ this happens often: nodes placed symmetrically about a tangency point are
+exactly collinear). The resulting wave list is ordered in **physical space**, with
+strictly increasing speeds in both orientations of the initial jump. Speed
+ordering alone is not an entropy proof; the envelope condition is essential,
+especially for nonconvex fluxes.
 
 For Burgers' equation, a downward jump gives one shock of speed $(u_L+u_R)/2$.
 An upward jump crosses consecutive state nodes, producing an expanding staircase.
