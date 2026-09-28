@@ -19,6 +19,23 @@ local checkout, a sibling project, a particular GitHub repository or a private
 package. The bundled source cell is collapsed because it is implementation,
 not experiment configuration. It is readable Python, not a remote download.
 
+### Theory notebooks (03 onward)
+
+**[03 · The Riemann problem](03_riemann_problem.ipynb)** and later notebooks do
+*not* bundle the solver. Their first cell imports `fronttrack` from the checkout
+or installs it from GitHub. While the repository is private, the GitHub
+install needs a token. In Colab:
+
+1. Open the notebook: **File → Open notebook → GitHub**, tick *Include private
+   repos* and authorise, or upload the `.ipynb` file.
+2. On GitHub, create a fine-grained personal access token with **read-only
+   Contents** access to this repository only.
+3. In Colab, click the key icon in the left sidebar, add a secret named
+   `GITHUB_TOKEN` with the token as its value, and allow notebook access.
+
+Without a token the first cell stops with a short explanation. Once the
+repository is public, none of this is needed.
+
 ## Run locally
 
 In the project root with Python 3.10+:
