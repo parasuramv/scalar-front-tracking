@@ -28,7 +28,9 @@ with tempfile.TemporaryDirectory(prefix='fronttrack-check-') as scratch:
         'display_name': 'Fronttrack check', 'language': 'python',
         'env': {'MPLCONFIGDIR': str(scratch/'mpl')},
     }))
-    for path in sorted((root/'notebooks').glob('*.ipynb')):
+    # Only the bundled notebooks run in isolation. 03/04 need the checkout and are
+    # executed by tools/build_theory_notebooks.py --execute instead.
+    for path in sorted((root/'notebooks').glob('0[12]_*.ipynb')):
         work = scratch/path.stem
         work.mkdir()
         nb = nbformat.read(path, as_version=4)
