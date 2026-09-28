@@ -315,6 +315,8 @@ fine enough that its own quadrature error does not dominate.
 
 The automated tests cover Burgers speeds, endpoint interpolation, affine contacts,
 convex/concave fans, nonconvex envelope admissibility over all node pairs,
+collinear chords under roundoff (uniform and nonuniform grids, affine shifts of
+the flux, chords created by collisions), strictly separating fans,
 single and simultaneous collisions, annihilation, constant solutions, restarting
 at output times, mass conservation, total variation, and rarefaction refinement.
 
