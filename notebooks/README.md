@@ -21,8 +21,9 @@ not experiment configuration. It is readable Python, not a remote download.
 
 ### Theory notebooks (03 onward)
 
-**[03 · The Riemann problem](03_riemann_problem.ipynb)** and later notebooks do
-*not* bundle the solver. Their first cell imports `fronttrack` from the checkout
+**[03 · The Riemann problem](03_riemann_problem.ipynb)** and
+**[04 · Interactions](04_interactions.ipynb)** (the event loop, collisions,
+front and event counts) do *not* bundle the solver. Their first cell imports `fronttrack` from the checkout
 or installs it from GitHub. While the repository is private, the GitHub
 install needs a token. In Colab:
 
