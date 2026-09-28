@@ -1,5 +1,6 @@
 """End-to-end conservation, collision, and convergence checks for the event driver."""
 
+import itertools
 import unittest
 import numpy as np
 import _srcpath  # noqa: F401  (finds src/fronttrack without installation)
@@ -143,6 +144,24 @@ class SolverTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sim.run(-1)
 
+    def test_collision_into_collinear_chord_leaves_one_front(self):
+        """States -0.9 | -1 | 0.5 for u**3: the two fronts meet, and the outgoing
+        envelope from -0.9 to 0.5 is one chord. Its continuous tangency point is
+        0.45, so the nodes 0.4 and 0.5 are collinear with -0.9 (slope 0.61).
+        """
+        flux = DiscreteFlux(lambda u: u**3, np.linspace(-1, 1, 21))
+        sim = FrontTracker(flux, [0.0, 0.5], [1, 0, 15]).run(20)
+        self.assertEqual(sim.event_count, 1)
+        self.assertEqual([(f.iL, f.iR) for f in sim.fronts], [(1, 15)])
+        self.assertAlmostEqual(sim.fronts[0].speed, 0.61)
+
+    def test_no_zero_time_event_loop(self):
+        """Many u**3 runs with collinear chords finish well within max_events."""
+        flux = DiscreteFlux(lambda u: u**3, np.linspace(-1, 1, 21))
+        for states in itertools.product(range(0, 21, 5), repeat=4):
+            sim = FrontTracker(flux, [0.0, 0.05, 0.13], states,
+                               max_events=200, record_history=False)
+            sim.run(10.0)  # raises RuntimeError on a livelock
 
 if __name__ == "__main__":
     unittest.main()

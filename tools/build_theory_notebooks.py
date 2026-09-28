@@ -252,9 +252,12 @@ envelope chooses a nearby node. The shock speed error is $O(\delta)$.
 
 `solve_riemann` builds the envelope with a single monotone-stack pass (Andrew's
 monotone chain, a close relative of Graham's scan). It visits the nodes
-between $u_L$ and $u_R$ in order. Each new node pops every earlier node that it
-exposes as lying *above* the lower hull, which is detected by a slope that fails to increase. Every node is
-pushed once and popped at most once, so the cost is $O(|i_R-i_L|)$.
+between $u_L$ and $u_R$ in order. With $a,b$ the top two stack entries and $n$ the new
+node, $b$ survives only if it lies *strictly below* the chord $a\to n$; otherwise it is popped
+and the test repeats. Every node is pushed once and popped at most once, so the cost is
+$O(|i_R-i_L|)$.
+
+"Strictly below" needs care in floating point, and the cubic shows why: see below the figure.
 
 The cell below re-implements the loop with a record of each step, checks the result against
 the library, and draws four stages for the cubic.
@@ -263,12 +266,17 @@ the library, and draws four stages for the cubic.
 def hull_trace(flux, iL, iR):
     """Lower (convex) hull for iL<iR, recording the stack after every node."""
     s, v = flux.u_grid, flux.f_values
+    u_scale = max(abs(s[0]), abs(s[-1]))
     hull, stages = [], []
     for n in range(iL, iR + 1):
         while len(hull) >= 2:
             a, b = hull[-2], hull[-1]
-            if (v[b] - v[a]) / (s[b] - s[a]) >= (v[n] - v[a]) / (s[n] - s[a]):
-                hull.pop()           # b lies on or above the chord a -> n
+            rise, run = v[n] - v[a], s[n] - s[a]
+            gap = (v[b] - v[a]) - rise * ((s[b] - s[a]) / run)   # height of b above chord a -> n
+            tol = 16 * np.finfo(float).eps * (max(abs(v[a]), abs(v[b]), abs(v[n]))
+                                              + abs(rise / run) * u_scale)
+            if gap >= -tol:
+                hull.pop()           # b lies on or above the chord a -> n (up to roundoff)
             else:
                 break
         hull.append(n)
@@ -292,10 +300,21 @@ plt.show()
 print("hull nodes:", library)
 '''),
         md(r"""
-Up to node 7 ($u=0.4$) each new node pops everything in between, so the stack is always one
-chord from $u_0=-1$. From there on, $f_\delta$ curves upward faster than any chord from $-1$
-(the continuous tangency is at $u^*=\tfrac12$, which lies between nodes 7 and 8), so every later node survives.
-The hull ends as the chord $0\to7$ followed by $f_\delta$ itself.
+Up to node 8 ($u=0.6$) each new node pops everything in between, so the stack is always one
+chord from $u_0=-1$. From node 9 on, $f_\delta$ curves upward faster than any chord from $-1$,
+so every later node survives. The hull ends as the chord $0\to8$ followed by $f_\delta$ itself.
+
+Node 8, not node 7, is the end of the chord. For $f=u^3$ the chord slope from $u_a$ to $u_b$ is
+$u_a^2+u_au_b+u_b^2$, which for $u_a=-1$ is symmetric in $u_b$ about $\tfrac12$, the continuous
+tangency point $u^*$. Nodes 7 and 8 ($u=0.4$ and $0.6$) straddle $u^*$ symmetrically, so the nodes
+$0,7,8$ are exactly collinear and the envelope is the single chord $0\to8$, one shock of speed $0.76$.
+
+In floating point the two slopes come out as `0.76` and `0.7600000000000003`. An exact
+comparison keeps node 7 and splits the shock into two fronts moving together, a zero-width
+state that is not in the entropy solution. The loop above therefore compares the height of
+$b$ above the chord with a roundoff allowance: $16\varepsilon$ times the size of the numbers
+that enter the test. Uniform grids for $u^3$ contain many such collinear triples, one for every
+pair of nodes placed symmetrically about a tangency point.
 """),
         md(r"""
 ## 5. How good is the polygonal answer?
