@@ -1854,24 +1854,64 @@ $L^1$ is special. The same solutions are **not** stable in $L^\infty$ or in $L^2
 shock $u_0=\mathbf 1_{(-1,0)}$ and the slightly higher $v_0=(1+\varepsilon)\,\mathbf 1_{(-1,0)}$. Their right edges
 are shocks with speeds $\tfrac12$ and $\tfrac{1+\varepsilon}2$, so after time $t$ the two shocks are
 $\varepsilon t/2$ apart, and in between the two solutions differ by about $1$. The grid below is chosen so
-that $0$, $1$ and $1+\varepsilon$ are nodes and everything is exact.
+that $0$, $1$ and $1+\varepsilon$ are nodes and everything is exact. All three distances are computed
+exactly from the fronts.
 """),
         code(r'''
-eps = 0.01
-flux = DiscreteFlux(burgers, np.array([0.0, 0.5, 1.0, 1.0 + eps]))
-a = FrontTracker.from_values(flux, [-1.0, 0.0], [0.0, 1.0, 0.0], record_history=False)
-b = FrontTracker.from_values(flux, [-1.0, 0.0], [0.0, 1.0 + eps, 0.0], record_history=False)
-
 def norms(a, b):
+    """Exact L1, L2 and Linf distances of two step solutions (same far field)."""
     p = np.unique(np.concatenate([fronts_x(a), fronts_x(b)]))
     mid = 0.5 * (p[1:] + p[:-1])
     diff, w = np.abs(a.sample(mid) - b.sample(mid)), np.diff(p)
     return np.sum(diff * w), np.sqrt(np.sum(diff**2 * w)), diff.max()
 
+def shock_pair(eps):
+    """u0 = 1 on (-1,0), v0 = 1+eps on (-1,0); nodes 0, 1/2, 1, 1+eps make everything exact."""
+    flux = DiscreteFlux(burgers, np.array([0.0, 0.5, 1.0, 1.0 + eps]))
+    make = lambda top: FrontTracker.from_values(flux, [-1.0, 0.0], [0.0, top, 0.0],
+                                                record_history=False)
+    return make(1.0), make(1.0 + eps)
+
+eps = 0.01
+a, b = shock_pair(eps)
+ts = np.linspace(0, 4, 401)
+hist = []
+for t in ts:
+    a.run(t); b.run(t)
+    hist.append(norms(a, b))
+hist = np.array(hist)
+
+eps_list = 10.0 ** -np.arange(1, 6)
+final = []
+for e in eps_list:
+    a, b = shock_pair(e)
+    a.run(4.0); b.run(4.0)
+    final.append(norms(a, b))
+final = np.array(final)
+
+fig, (p, q) = plt.subplots(1, 2, figsize=(12, 4), constrained_layout=True)
+for k, (lab, c) in enumerate(((r"$L^1$", C_POLY), (r"$L^2$", C_ENV), (r"$L^\infty$", C_FLUX))):
+    p.plot(ts, hist[:, k], color=c, label=lab)
+p.plot(ts, np.sqrt(np.minimum(eps * ts / 2, eps)), ":", color=C_EXACT, lw=1.2,
+       label=r"$\sqrt{\min(\varepsilon t/2,\ \varepsilon)}$")
+p.set(yscale="log", xlabel="$t$", ylabel="distance between the two solutions",
+      title=f"Same data, ε = {eps}: three norms")
+p.legend(frameon=False, loc="center right")
+q.loglog(eps_list, eps_list, "o-", color=C_EXACT, ms=4, lw=1, label="all three norms at t = 0 (= ε)")
+q.loglog(eps_list, final[:, 0], "s--", color=C_POLY, ms=5, label=r"$L^1$ at t = 4")
+q.loglog(eps_list, final[:, 1], "o-", color=C_ENV, ms=5, label=r"$L^2$ at t = 4")
+q.loglog(eps_list, final[:, 2], "^-", color=C_FLUX, ms=5, label=r"$L^\infty$ at t = 4")
+q.set(xlabel=r"size of the perturbation $\varepsilon$", title="Before and after, as ε → 0")
+q.legend(frameon=False, fontsize=9)
+plt.show()
+
 lines = [f"eps = {eps}", f"{'t':>4} {'L1':>9} {'L2':>9} {'Linf':>9}"]
 for t in (0.0, 0.5, 1.0, 2.0, 4.0):
-    a.run(t); b.run(t)
-    lines.append(f"{t:4g} " + " ".join(f"{v:9.4f}" for v in norms(a, b)))
+    i = int(np.argmin(np.abs(ts - t)))
+    lines.append(f"{t:4g} " + " ".join(f"{v:9.4f}" for v in hist[i]))
+lines += ["", f"{'eps':>8} {'L2 at t=4':>10} {'ratio L2(4)/L2(0)':>18}"]
+for e, (l1, l2, li) in zip(eps_list, final):
+    lines.append(f"{e:8.0e} {l2:10.4f} {l2 / e:18.1f}")
 print("\n".join(lines))
 '''),
         md(r"""
@@ -1879,12 +1919,20 @@ print("\n".join(lines))
   of one solution, the other solution's value is an endpoint of the jump, never strictly inside it.
 * **$L^\infty$:** the distance jumps from $\varepsilon$ to about $1$ as soon as $t>0$, because between the two shocks
   one solution is $0$ and the other is about $1$.
-* **$L^2$:** the distance grows like $\sqrt{\varepsilon t/2}$ while the shocks separate. At $t=2$ the faster shock
-  has absorbed the extra step $1\to1+\varepsilon$ of its rarefaction, both shocks then have the same speed,
-  and the gap freezes at $\varepsilon$. So the $L^2$ distance ends at $\sqrt\varepsilon=0.1$, ten times its initial value.
+* **$L^2$:** the distance grows like $\sqrt{\varepsilon t/2}$ while the shocks separate (dotted line, left). At
+  $t=2$ the faster shock has absorbed the extra step $1\to1+\varepsilon$ of its rarefaction, both shocks then
+  have the same speed, and the gap freezes at $\varepsilon$. So the $L^2$ distance ends at $\sqrt\varepsilon=0.1$, ten
+  times its initial value.
+
+The right panel repeats this for $\varepsilon=10^{-1},\dots,10^{-5}$. At $t=0$ all three distances equal $\varepsilon$.
+At $t=4$ the $L^1$ distance still equals $\varepsilon$ (its markers sit on the black line), the $L^\infty$ distance
+is about $1$ whatever $\varepsilon$ is, and the $L^2$ distance is $\sqrt\varepsilon$: slope $\tfrac12$ instead of $1$. The
+amplification factor $L^2(4)/L^2(0)=\varepsilon^{-1/2}$ is **unbounded** as $\varepsilon\to0$, so no inequality
+$\lVert u(t)-v(t)\rVert_{L^2}\le C\,\lVert u_0-v_0\rVert_{L^2}$ can hold, for any constant $C$. The data-to-solution
+map is still continuous in $L^2$ here, but only Hölder with exponent $\tfrac12$.
 
 Shocks are the reason: a small change of the data moves a jump, and in $L^p$ with $p>1$ a moved jump
-costs far more than the change that moved it. A change of size $\varepsilon$ can cost $\varepsilon^{1/2}$ in $L^2$.
+costs far more than the change that moved it.
 
 ## 7. Try it yourself
 
