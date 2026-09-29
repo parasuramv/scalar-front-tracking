@@ -9,15 +9,15 @@ editable parameter cell contains a complete working example and alternatives.
 
 ## Run in Colab
 
-Open [Google Colab](https://colab.research.google.com/), choose **File → Upload
-notebook**, select either `.ipynb`, then **Runtime → Run all**. A CPU runtime is
-sufficient. Missing dependencies are installed by the first code cell. Once the
-files are on GitHub, Colab can also open their public GitHub URLs.
+Use the *Open in Colab* badges in the [main README](../README.md), then
+**Runtime → Run all**. A CPU runtime is sufficient. Missing dependencies are
+installed by the first code cell. You can also upload a downloaded `.ipynb`
+with **File → Upload notebook**.
 
-The notebooks bundle the actual solver source. Neither depends on access to a
-local checkout, a sibling project, a particular GitHub repository or a private
-package. The bundled source cell is collapsed because it is implementation,
-not experiment configuration. It is readable Python, not a remote download.
+Notebooks 01 and 02 bundle the actual solver source, so neither depends on a
+local checkout or on this repository being reachable. The bundled source cell
+is collapsed because it is implementation, not experiment configuration. It is
+readable Python, not a remote download.
 
 ### Theory notebooks (03 onward)
 
@@ -27,19 +27,9 @@ front and event counts), **[05 · Convergence](05_convergence.ipynb)**
 (rates as δ → 0 in L¹ and for the primitive, projection of initial data,
 roundoff) and **[06 · Stability](06_stability.ipynb)** (L¹ contraction and
 where it comes from, total variation, front counts, failure of L² and L∞
-stability) do *not* bundle the solver. Their first cell imports `fronttrack` from the checkout
-or installs it from GitHub. While the repository is private, the GitHub
-install needs a token. In Colab:
-
-1. Open the notebook: **File → Open notebook → GitHub**, tick *Include private
-   repos* and authorise, or upload the `.ipynb` file.
-2. On GitHub, create a fine-grained personal access token with **read-only
-   Contents** access to this repository only.
-3. In Colab, click the key icon in the left sidebar, add a secret named
-   `GITHUB_TOKEN` with the token as its value, and allow notebook access.
-
-Without a token the first cell stops with a short explanation. Once the
-repository is public, none of this is needed.
+stability) do *not* bundle the solver. Their first cell uses `fronttrack` from
+the checkout if present, and otherwise installs it from this repository with
+`pip`; in Colab this happens automatically.
 
 ## Run locally
 
