@@ -23,9 +23,11 @@ not experiment configuration. It is readable Python, not a remote download.
 
 **[03 · The Riemann problem](03_riemann_problem.ipynb)**,
 **[04 · Interactions](04_interactions.ipynb)** (the event loop, collisions,
-front and event counts) and **[05 · Convergence](05_convergence.ipynb)**
+front and event counts), **[05 · Convergence](05_convergence.ipynb)**
 (rates as δ → 0 in L¹ and for the primitive, projection of initial data,
-roundoff) do *not* bundle the solver. Their first cell imports `fronttrack` from the checkout
+roundoff) and **[06 · Stability](06_stability.ipynb)** (L¹ contraction and
+where it comes from, total variation, front counts, failure of L² and L∞
+stability) do *not* bundle the solver. Their first cell imports `fronttrack` from the checkout
 or installs it from GitHub. While the repository is private, the GitHub
 install needs a token. In Colab:
 
