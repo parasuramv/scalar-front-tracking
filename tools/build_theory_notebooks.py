@@ -4,12 +4,8 @@ Unlike the two tool notebooks, these do NOT bundle the solver source. The setup
 cell looks for ``fronttrack`` in this order:
 
 1. the checkout (``./src`` or ``../src``), or an already installed package;
-2. ``pip install git+https://github.com/REPO`` (works once the repo is public);
-3. in Colab only, the same install authenticated with a Colab secret named
-   ``GITHUB_TOKEN`` (a fine-grained, read-only token for this repository).
+2. ``pip install git+https://github.com/REPO``.
 
-If all three fail it stops with an explanation instead of a pip traceback, and
-distinguishes a missing secret from one the notebook was not allowed to read.
 Execute and save outputs with:
 
     python tools/build_theory_notebooks.py --execute
@@ -24,48 +20,19 @@ REPO = "parasuramv/scalar-front-tracking"
 
 SETUP = f'''\
 # Setup: use the local checkout if present, otherwise install from GitHub.
-# Private repo + Colab: add a secret GITHUB_TOKEN (key icon, left sidebar) holding
-# a fine-grained token with read access to {REPO}. See notebooks/README.md.
 import os, sys, subprocess, importlib, importlib.util
 from pathlib import Path
 REPO = "{REPO}"
-
-def _pip_install(target):
-    # No terminal prompt: a private repo must fail fast, not wait for a password.
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", target], check=True,
-                   capture_output=True, env={{**os.environ, "GIT_TERMINAL_PROMPT": "0"}})
 
 for candidate in (Path.cwd() / "src", Path.cwd().parent / "src"):
     if (candidate / "fronttrack").is_dir():
         sys.path.insert(0, str(candidate))
         break
 if importlib.util.find_spec("fronttrack") is None:
-    try:
-        _pip_install(f"git+https://github.com/{{REPO}}.git")
-    except subprocess.CalledProcessError:
-        token = None
-        hint = "add a GITHUB_TOKEN secret with read access to the repository"
-        if "google.colab" in sys.modules:
-            from google.colab import userdata
-            try:
-                token = userdata.get("GITHUB_TOKEN")
-            except Exception as err:
-                # Two different failures: no such secret, or the secret exists but
-                # this notebook's access toggle is off. Tell the user which.
-                if type(err).__name__ == "NotebookAccessError":
-                    hint = ("switch on notebook access for the GITHUB_TOKEN secret "
-                            "(key icon in the left sidebar)")
-        if not token:
-            raise RuntimeError(
-                f"Could not install fronttrack from github.com/{{REPO}} (the repository "
-                f"may still be private). Run this notebook from a checkout, or in Colab "
-                f"{{hint}}.") from None
-        try:
-            _pip_install(f"git+https://x-access-token:{{token}}@github.com/{{REPO}}.git")
-        except subprocess.CalledProcessError:
-            # 'from None' keeps the failed command, which contains the token, out of view.
-            raise RuntimeError("GITHUB_TOKEN was found but the install failed: check "
-                               f"that the token can read {{REPO}}.") from None
+    # GIT_TERMINAL_PROMPT=0: fail fast instead of waiting for a password prompt.
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
+                           f"git+https://github.com/{{REPO}}.git"],
+                          env={{**os.environ, "GIT_TERMINAL_PROMPT": "0"}})
     importlib.invalidate_caches()
 for name in ("matplotlib", "ipywidgets"):
     if importlib.util.find_spec(name) is None:

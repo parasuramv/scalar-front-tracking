@@ -13,20 +13,35 @@ sampling, exact finite-window integration, colour-valued space–time plots, int
 
 ![Four front-tracking experiments: values of u in space and time](docs/examples.png)
 
-## Interactive notebooks
+## Notebooks
 
-| Notebook | Use it for |
-| --- | --- |
-| [Ready-to-run examples](notebooks/02_ready_to_run_examples.ipynb) | Run all cells: Burgers pulse, merging shocks, rarefaction and a nonconvex compound wave |
-| [Front tracking playground](notebooks/01_front_tracking_playground.ipynb) | Supply your own flux, state grid, step data, observation window and snapshot times |
+### Interactive
 
-Both notebooks include colour-valued space–time diagrams, exact front paths,
-profile snapshots, a time slider with Play, colour-map controls, and image/data
-export. They carry a source snapshot, so a downloaded notebook runs independently
-in Jupyter or Google Colab. No repository URL is required. Saved figures provide
-static previews on GitHub; run the notebooks to activate the controls.
+| Notebook | Use it for | |
+| --- | --- | --- |
+| [02 · Ready-to-run examples](notebooks/02_ready_to_run_examples.ipynb) | Run all cells: Burgers pulse, merging shocks, rarefaction and a nonconvex compound wave | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/02_ready_to_run_examples.ipynb) |
+| [01 · Front tracking playground](notebooks/01_front_tracking_playground.ipynb) | Supply your own flux, state grid, step data, observation window and snapshot times | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/01_front_tracking_playground.ipynb) |
 
-[Notebook instructions](notebooks/README.md) · [Publication guide](PUBLICATION.md)
+Both include colour-valued space–time diagrams, exact front paths, profile
+snapshots, a time slider with Play, colour-map controls, and image/data export.
+They carry a snapshot of the solver source, so a downloaded notebook runs on its
+own in Jupyter or Google Colab.
+
+### Theory series
+
+| Notebook | Contents | |
+| --- | --- | --- |
+| [03 · The Riemann problem](notebooks/03_riemann_problem.ipynb) | Entropy solution of a single jump from the convex and concave envelopes of the polygonal flux | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/03_riemann_problem.ipynb) |
+| [04 · Interactions](notebooks/04_interactions.ipynb) | The event loop, collisions, front and event counts | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/04_interactions.ipynb) |
+| [05 · Convergence](notebooks/05_convergence.ipynb) | Rates as δ → 0 in L¹ and for the primitive, projection of initial data, roundoff | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/05_convergence.ipynb) |
+| [06 · Stability](notebooks/06_stability.ipynb) | L¹ contraction and where it comes from, total variation, front counts, failure of L² and L∞ stability | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/06_stability.ipynb) |
+
+The theory notebooks do not bundle the solver: their first cell uses the local
+checkout if present and otherwise installs `fronttrack` from this repository.
+
+GitHub shows saved figures as static previews; run a notebook to activate its
+controls. See the [notebook instructions](notebooks/README.md) for details and
+for rebuilding the notebooks after source changes.
 
 ## Get started locally
 
@@ -46,14 +61,11 @@ python main.py --example pulse --nodes 81 --time 3
 ```
 
 The core solver needs only NumPy: `python -m pip install -e .`. Matplotlib and
-ipywidgets are imported only by plotting and interactive functions. On the
-maintainer's workstation, activate the existing `claw` environment before these
-commands. Other users can use any Python environment satisfying the dependencies.
+ipywidgets are imported only by plotting and interactive functions.
 
 The solver is the installable package `fronttrack` in `src/fronttrack/`.
 Repository scripts also locate this package without installation through
-`_srcpath.py`. The sibling Compact Domain Schemes and Splitting Schemes projects
-find it automatically when these folders sit beside each other.
+`_srcpath.py`.
 
 The default example is Burgers' equation, $f(u)=u^2/2$, with initial data
 $u=1$ on $[0,1)$ and $u=0$ elsewhere. A rarefaction from zero meets the rightward
@@ -156,16 +168,9 @@ names (`from fronttrack import DiscreteFlux, FrontTracker, solve_riemann`).
 
 The main dependency flow is `main -> solver -> fronts/interactions -> riemann -> flux`
 (the flux object is passed explicitly). Inside the package these are relative
-imports.
-
-The root-level `flux.py`, `riemann.py`, `fronts.py`, `interactions.py` and
-`solver.py` are deprecated one-line compatibility shims for old notebooks that
-did `from flux import DiscreteFlux`. Nothing imports them any more and they can
-be deleted; `pyproject.toml` never installs them. `fronttrack.visualization` supplies reusable plots and notebook controls;
-`main.py` handles CLI plotting and file export;
-importing the numerical modules does not run a simulation or create a figure.
-The original print-and-plot test scripts have been replaced with assertion-based
-unit tests; example plots now belong to the CLI.
+imports. `fronttrack.visualization` supplies reusable plots and notebook controls;
+`main.py` handles CLI plotting and file export; importing the numerical modules
+does not run a simulation or create a figure.
 
 A `Front(x, iL, iR, speed)` represents one jump. Adjacent fronts must satisfy
 `left.iR == right.iL`; positions are in spatial order. An initial rarefaction has
@@ -181,35 +186,6 @@ Read `src/fronttrack/flux.py`, `riemann.py`, `fronts.py`, `interactions.py`, and
 `solver.py` in that order, then `main.py` for a complete numerical workflow. Each module has
 an overview; classes and functions document inputs and behavior, and inline
 comments explain the mathematical decisions and array conventions.
-
-The cleaned-up implementation includes these optimizations:
-
-- `DiscreteFlux` precomputes interpolation slopes on its read-only node arrays.
-- `solve_riemann` maintains both node and slope stacks. Accepted hull edges keep
-  their speeds, avoiding redundant chord calculations and repeated validation.
-- Neighbor scans use `itertools.pairwise`, avoiding copied list slices per event.
-- Front objects use dataclass slots to reduce per-front storage.
-- `_advance` records and moves fronts in one pass. `_resolve_cluster` isolates
-  multiway collision handling from the main `run` loop.
-- `integral` walks the step regions directly in $O(N)$ work and uses `math.fsum`
-  to reduce cancellation. It needs neither midpoint samples nor binary searches.
-- The convergence calculation samples all regions together, instead of
-  reconstructing the entire solution separately for each integration interval.
-- `main.py` separates argument parsing, observation, export, and plotting into
-  `parse_args`, `collect_outputs`, `save_outputs`, and `plot_results`. Fixed-size
-  output arrays are preallocated, and `--no-plot` disables trajectory recording.
-
-Local median-of-five timings during cleanup measured approximately 2.8x faster
-Riemann solves (300 fixed-seed state pairs on a 401-node nonconvex flux), 1.45x
-faster evolution of the 161-node nonconvex example to t=3, and 63x faster evaluation
-of the 641-node rarefaction error. These are small-workload measurements on this
-machine, not universal speed guarantees. Before/after pulse and nonconvex runs
-at 81 nodes retained identical event counts and front geometry within $10^{-13}$.
-The readable $O(N)$ event scan remains; there is no heap-based event queue yet.
-
-The original 21 numerical tests additionally check history-free evolution, exported tables,
-exact rarefaction error, and integration on intervals as narrow as one floating-point
-step. Existing run commands and file formats remain the same.
 
 ## Use your own flux and initial data
 
@@ -329,12 +305,12 @@ at output times, mass conservation, total variation, and rarefaction refinement.
 
 This is a readable reference implementation for a homogeneous scalar equation,
 not a solver for systems, source terms, spatially varying fluxes, periodic domains,
-or imposed boundary conditions (the sibling Compact Domain Schemes project builds
-S^1 and torus solvers on top of this package). Plot limits only crop observations; they do not
+or imposed boundary conditions. Plot limits only crop observations; they do not
 introduce boundaries, and fronts outside the visible window keep evolving.
 
 Collision prediction scans all adjacent fronts and advancement moves all of them,
-so each event costs $O(\text{number of fronts})$, plus a local hull construction. Trajectory
+so each event costs $O(\text{number of fronts})$, plus a local hull construction;
+there is no heap-based event queue. Trajectory
 history can also grow substantially. For large runs set `record_history=False`;
 `segments` then stays empty. Increase `max_events` from its default 100000 only
 when appropriate; hitting the limit raises an error with the simulation left at
@@ -373,10 +349,15 @@ supports snapshots; a space–time plot needs at least two distinct times.
 
 The CLI defaults to 101 observation times for a useful space–time background and
 shows at most five overlaid profiles. `--time 0` produces initial profiles without
-a fictitious time diagram. The NPZ/CSV export conventions remain unchanged.
+a fictitious time diagram.
 
-The shared module also supplies `observe_grid`, `GridHistory.line` and
-`plot_grid_snapshot` for the sibling projects' cell-average schemes. Their
-space–time slices are labelled as cell-average observations, with hatching where
-artificial-boundary dependence is present. These helpers do not import either
-sibling package and do not change the real-line evolution algorithm.
+The module also supplies `observe_grid`, `GridHistory.line` and
+`plot_grid_snapshot` for cell-average data from other schemes. Their space–time
+slices are labelled as cell-average observations, with hatching where
+artificial-boundary dependence is present.
+
+## License and citation
+
+Released under the [MIT License](LICENSE). If you use this code in your work,
+please cite it: the *Cite this repository* button on the GitHub page gives
+BibTeX and APA entries generated from [`CITATION.cff`](CITATION.cff).
