@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "scalar-front-tracking: front tracking for scalar conservation laws"
+type: software
+authors:
+  - family-names: "Venkatesh"
+    given-names: "Parasuram"
+    affiliation: "TIFR Centre for Applicable Mathematics, Bengaluru"
+    orcid: "https://orcid.org/0009-0001-2681-1982"
+repository-code: "https://github.com/parasuramv/scalar-front-tracking"
+license: MIT
+keywords:
+  - conservation laws
+  - front tracking
+  - entropy solutions
+  - numerical analysis
