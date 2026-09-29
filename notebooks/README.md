@@ -21,9 +21,11 @@ not experiment configuration. It is readable Python, not a remote download.
 
 ### Theory notebooks (03 onward)
 
-**[03 · The Riemann problem](03_riemann_problem.ipynb)** and
+**[03 · The Riemann problem](03_riemann_problem.ipynb)**,
 **[04 · Interactions](04_interactions.ipynb)** (the event loop, collisions,
-front and event counts) do *not* bundle the solver. Their first cell imports `fronttrack` from the checkout
+front and event counts) and **[05 · Convergence](05_convergence.ipynb)**
+(rates as δ → 0 in L¹ and for the primitive, projection of initial data,
+roundoff) do *not* bundle the solver. Their first cell imports `fronttrack` from the checkout
 or installs it from GitHub. While the repository is private, the GitHub
 install needs a token. In Colab:
 
@@ -76,12 +78,12 @@ python tools/build_theory_notebooks.py --execute
 
 The first command refreshes the source snapshot and clears outputs. The second
 executes 01 and 02 in fresh kernels outside the checkout, exercises the
-widget callbacks, and saves output figures. The third rebuilds 03 and 04 from
-their build script (edit that script, never the `.ipynb`). All three require the
+widget callbacks, and saves output figures. The third rebuilds the theory notebooks (03 onward)
+from their build script (edit that script, never the `.ipynb`). All three require the
 notebook dependencies. The embedded source fingerprint records the solver
 snapshot used at generation.
 
 Saved notebooks contain no widget state, execution timestamps or random cell
 ids, so rebuilding unchanged sources in the same environment reproduces them
 byte for byte, and `git diff` after a rebuild shows only real changes. Outside a
-live kernel, widget cells show a note (01, 02) or a static preview (03, 04).
+live kernel, widget cells show a note (01, 02) or a static preview (03 onward).
