@@ -10,3 +10,4 @@ front_tracking_exports/
 build/
 dist/
 .virtual_documents/
+CLAUDE.md
