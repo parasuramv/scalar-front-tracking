@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "homo-front-tracking"
-version = "0.2.0"
+version = "0.3.0"
 description = "Dafermos polygonal-flux front tracking for scalar conservation laws"
 readme = "README.md"
 requires-python = ">=3.10"

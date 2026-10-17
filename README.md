@@ -11,6 +11,10 @@ concave, and nonconvex fluxes. Initial data are piecewise constant, with constan
 states extending to infinity on either side. It includes collision handling,
 sampling, exact finite-window integration, colour-valued space–time plots, interactive notebooks, and numerical tests.
 
+The same construction also runs on the circle $S^1=\mathbb R/L\mathbb Z$, where fronts
+leave one end of the chart and re-enter at the other; see
+[Periodic domains: the circle](#periodic-domains-the-circle).
+
 ![Four front-tracking experiments: values of u in space and time](docs/examples.png)
 
 ## Notebooks
@@ -35,6 +39,7 @@ own in Jupyter or Google Colab.
 | [04 · Interactions](notebooks/04_interactions.ipynb) | The event loop, collisions, front and event counts | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/04_interactions.ipynb) |
 | [05 · Convergence](notebooks/05_convergence.ipynb) | Rates as δ → 0 in L¹ and for the primitive, projection of initial data, roundoff | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/05_convergence.ipynb) |
 | [06 · Stability](notebooks/06_stability.ipynb) | L¹ contraction and where it comes from, total variation, front counts, failure of L² and L∞ stability | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/06_stability.ipynb) |
+| [07 · Front tracking on the circle](notebooks/07_periodic_domain.ipynb) | Cyclic adjacency and seam collisions, agreement with the line solver on a periodic cover, $1/t$ decay versus the N-wave | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/07_periodic_domain.ipynb) |
 
 The theory notebooks do not bundle the solver: their first cell uses the local
 checkout if present and otherwise installs `fronttrack` from this repository.
@@ -162,7 +167,9 @@ names (`from fronttrack import DiscreteFlux, FrontTracker, solve_riemann`).
 | `fronts.py` | Store moving jumps and initialize all initial Riemann problems | `Front`, `FrontCollection`, `initial_fronts` |
 | `interactions.py` | Find the earliest adjacent collision and construct outgoing waves | `next_interaction`, `resolve_interaction` |
 | `solver.py` | Evolve the solution, resolve clusters, sample, integrate and record paths | `FrontTracker` |
+| `periodic.py` | The same driver on the circle: cyclic adjacency, seam collisions, whole-circle mass | `Circle`, `PeriodicFrontTracker` |
 | `main.py` (root) | Choose example data, run requested output times, save arrays/CSV/plots | CLI entry point |
+| `periodic_main.py` (root) | The same for examples on the circle | CLI entry point |
 | `convergence.py` (root) | Compare the staircase with an exact Burgers rarefaction | Refinement-study CLI |
 | `test_*.py` (root) | Assert flux, entropy, collision and numerical invariants | `python -m unittest discover -v` |
 
@@ -301,11 +308,75 @@ the flux, chords created by collisions), strictly separating fans,
 single and simultaneous collisions, annihilation, constant solutions, restarting
 at output times, mass conservation, total variation, and rarefaction refinement.
 
+## Periodic domains: the circle
+
+`PeriodicFrontTracker` solves
+
+$$
+ u_t + (f(u))_x = 0,\qquad x\in S^1=\mathbb R/L\mathbb Z,
+$$
+
+with the same polygonal flux, Riemann solver and collision rule as `FrontTracker`.
+There are no far-field states and no boundary conditions. A front that leaves the
+chart $[a,a+L)$ through one end comes back through the other.
+
+![Nonconvex flux u³ with sine data on the circle](docs/periodic_example.png)
+
+```python
+import numpy as np
+from fronttrack import Circle, DiscreteFlux, PeriodicFrontTracker
+
+flux = DiscreteFlux(lambda u: 0.5*u**2, np.linspace(-1, 1, 101))
+circle = Circle(length=2*np.pi)              # chart [0, 2π); origin= moves it
+tracker = PeriodicFrontTracker.from_function(flux, np.sin, cells=100, domain=circle)
+mass = tracker.integral()                    # whole circle, exact for the step data
+tracker.run(2.0)
+u = tracker.sample(np.linspace(0, 2*np.pi, 1000, endpoint=False))
+print(tracker.event_count, tracker.integral() - mass)
+```
+
+Differences from the line solver:
+
+- **Data.** $N$ breakpoints take $N$ states, not $N+1$. State $j$ fills the arc
+  from breakpoint $j$ to breakpoint $j+1$, and the last state fills the arc through
+  the seam. A constant solution is no breakpoints and one state. Positions must lie
+  in the half-open chart. `from_function` samples cell midpoints and rounds to the
+  flux grid; these are not cell averages.
+- **Adjacency.** Fronts are an ordered lift spanning at most one circumference. The
+  right neighbour of the last front is the first front, one period further on.
+  Before a collision is resolved, the list is cut inside its largest empty arc, so
+  a collision across the seam is handled by the same cluster rule as on the line.
+  After each step the whole lift is shifted by a whole number of periods; fronts
+  are never wrapped one at a time.
+- **Diagnostics.** `integral()` takes no window: it is the mass over the whole
+  circle, constant up to roundoff. `total_variation()` includes the jump across
+  the seam. `sample(x)` accepts any finite coordinates and wraps them.
+  `snapshot()` returns fronts on the current lift, which need not lie in the chart.
+- **History.** With `record_history=True`, front paths are split where they cross
+  the seam, so space–time plots show no false diagonals. `observe_tracker`,
+  `step_profile` and `plot_spacetime` accept a periodic tracker.
+
+```bash
+python periodic_main.py --example pulse --time 2     # also: sine, transport, nonconvex
+python periodic_main.py --help
+```
+
+`periodic_main.py` writes the same kinds of files as `main.py` (PNG, NPZ, fronts
+and diagnostics CSV) to `results/`; its diagnostics record the whole-circle mass.
+`transport` uses $f(u)=-u$, so the profile returns to itself after time $L$.
+
+`test_periodic.py` checks exact transport through many circuits in both
+directions, seam collisions and rotation equivariance, mass and nonincreasing
+total variation for convex, concave and nonconvex fluxes, restarts, simultaneous
+collisions, full annihilation, and agreement with `FrontTracker` on a periodic
+cover of the circle. [Notebook 07](notebooks/07_periodic_domain.ipynb) explains the
+construction and shows the $1/t$ decay that convex fluxes produce on a compact domain.
+
 ## Scope and implementation limits
 
-This is a readable reference implementation for a homogeneous scalar equation,
-not a solver for systems, source terms, spatially varying fluxes, periodic domains,
-or imposed boundary conditions. Plot limits only crop observations; they do not
+This is a readable reference implementation for a homogeneous scalar equation on
+the line or the circle, not a solver for systems, source terms, spatially varying
+fluxes, multidimensional domains, or imposed boundary conditions. Plot limits only crop observations; they do not
 introduce boundaries, and fronts outside the visible window keep evolving.
 
 Collision prediction scans all adjacent fronts and advancement moves all of them,

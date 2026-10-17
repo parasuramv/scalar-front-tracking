@@ -25,9 +25,11 @@ readable Python, not a remote download.
 **[04 · Interactions](04_interactions.ipynb)** (the event loop, collisions,
 front and event counts), **[05 · Convergence](05_convergence.ipynb)**
 (rates as δ → 0 in L¹ and for the primitive, projection of initial data,
-roundoff) and **[06 · Stability](06_stability.ipynb)** (L¹ contraction and
+roundoff), **[06 · Stability](06_stability.ipynb)** (L¹ contraction and
 where it comes from, total variation, front counts, failure of L² and L∞
-stability) do *not* bundle the solver. Their first cell uses `fronttrack` from
+stability) and **[07 · Front tracking on the circle](07_periodic_domain.ipynb)**
+(cyclic adjacency, seam collisions, $1/t$ decay on a compact domain) do *not*
+bundle the solver. Their first cell uses `fronttrack` from
 the checkout if present, and otherwise installs it from this repository with
 `pip`; in Colab this happens automatically.
 
