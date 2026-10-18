@@ -93,8 +93,8 @@ in space and time; the overlaid paths and saved profile jumps use actual front
 geometry. A finer display raster does not improve the numerical approximation.
 
 The chosen $x$ interval is an **observation window**, not a bounded PDE domain.
-The first and last initial states extend to infinity. Use Compact Domain Schemes
-for periodic domains. This notebook does not impose inflow or wall conditions.
+The first and last initial states extend to infinity. Use `fronttrack.periodic`
+(notebook 07) for periodic domains. This notebook does not impose inflow or wall conditions.
 '''
 parameters = code('''
 # EDIT THIS CELL, then rerun the cells below it.
