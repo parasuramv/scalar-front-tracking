@@ -1,7 +1,9 @@
 """Predict adjacent collisions and solve the Riemann problem they create.
 
 Only neighbors need checking: a front cannot reach a non-neighbor without
-first meeting the front between them. Prediction remains a readable O(N) scan.
+first meeting the front between them. ``next_interaction`` is the readable
+O(N) scan over all neighbours. The drivers do not call it on every event:
+they keep the same pair predictions in a priority queue (events.py).
 """
 
 from itertools import pairwise

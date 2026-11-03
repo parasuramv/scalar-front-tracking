@@ -4,7 +4,7 @@ A single initial jump can generate several fronts (a rarefaction staircase),
 one front (for example a shock), or none when its two states are equal.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import pairwise
 import math
 
@@ -18,13 +18,20 @@ class Front:
     """One moving discontinuity with a constant speed until its next collision.
 
     ``x`` is its current position. ``iL``/``iR`` are flux-node indices on its
-    left/right. Slots reduce per-front memory; only position changes in flight.
+    left/right. Slots reduce per-front memory.
+
+    While a driver's ``run`` is in progress, ``x`` is instead the position at
+    the anchor time ``t0`` (see events.py); ``run`` restores the current
+    position before it returns. ``version`` stamps the front's queued
+    collision prediction. Neither takes part in comparison or repr.
     """
 
     x: float
     iL: int
     iR: int
     speed: float
+    t0: float = field(default=0.0, compare=False, repr=False)
+    version: int = field(default=0, compare=False, repr=False)
 
 
 class FrontCollection:

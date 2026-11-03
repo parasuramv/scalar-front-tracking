@@ -3,6 +3,9 @@
 The evolving solution is represented entirely by ordered fronts and a left
 far-field state. There is no spatial evolution mesh or CFL time step. Sampling
 and plotting grids observe the solution without changing its discretization.
+
+The event loop itself (anchored fronts and a priority queue of predicted
+collisions) lives in events.py and is shared with the circle driver.
 """
 
 from dataclasses import replace
@@ -10,14 +13,15 @@ import math
 
 import numpy as np
 
+from .events import AnchoredEventDriver
 from .fronts import initial_fronts
-from .interactions import next_interaction, resolve_interaction
+from .interactions import resolve_interaction
 
 # Relative allowance for roundoff when identifying a multi-front collision.
 _ROUNDOFF_FACTOR = 16 * np.finfo(float).eps
 
 
-class FrontTracker:
+class FrontTracker(AnchoredEventDriver):
     """Evolve node-valued step data by repeatedly solving local Riemann problems.
 
     Supply N jump positions and N+1 integer state indices, or use ``from_values``
@@ -41,8 +45,9 @@ class FrontTracker:
         self.record_history = record_history
         self.time = 0.0
         self.event_count = 0
-        # Entries are (x_start, t_start, x_end, t_end), suitable for plotting.
-        # Disable recording for long runs when only final states are required.
+        # Entries are (x_start, t_start, x_end, t_end), suitable for plotting:
+        # one per straight piece of a path, cut at its collision and at the
+        # end of each run() call. Disable when only final states are needed.
         self.segments = []
 
     @classmethod
@@ -55,67 +60,43 @@ class FrontTracker:
         """Live spatially ordered front list. Use snapshot() for an editable copy."""
         return self.collection.fronts
 
-    def _advance(self, dt: float) -> None:
-        """Advance by an internally validated increment, optionally recording paths."""
-        if dt == 0:
-            return  # Simultaneous events require no motion or history entries.
-        end_time = self.time + dt
-        if self.record_history:
-            # Record and translate in the same pass, calculating each endpoint
-            # once. This avoids the former second traversal of all fronts.
-            append = self.segments.append
-            for front in self.fronts:
-                end_x = front.x + front.speed * dt
-                append((front.x, self.time, end_x, end_time))
-                front.x = end_x
-        else:
-            self.collection.advance(dt)
-        self.time = end_time
+    def _pair(self, i):
+        """(left, right, gap now) for the pair owned by front i, or None."""
+        fronts = self.fronts
+        if not 0 <= i < len(fronts) - 1:
+            return None
+        left, right = fronts[i], fronts[i + 1]
+        return left, right, self._position(right) - self._position(left)
+
+    def _record_path(self, x0, t0, speed, t1):
+        """One straight history segment (x_start, t_start, x_end, t_end)."""
+        self.segments.append((x0, t0, x0 + speed * (t1 - t0), t1))
 
     def _resolve_cluster(self, pair_index: int) -> None:
-        """Replace the full cluster surrounding an already advanced colliding pair."""
-        fronts = self.fronts
-        x = 0.5 * (fronts[pair_index].x + fronts[pair_index + 1].x)
+        """Replace the full cluster around a pair meeting at the current time."""
+        fronts, position = self.fronts, self._position
+        x = 0.5 * (position(fronts[pair_index]) + position(fronts[pair_index + 1]))
         first, last = pair_index, pair_index + 1
         tolerance = self.position_tol + _ROUNDOFF_FACTOR * max(1.0, abs(x))
 
         # Compare every member to the event point, not just its neighbor, to
         # avoid chaining many small gaps into an arbitrarily wide cluster.
-        while first > 0 and abs(fronts[first - 1].x - x) <= tolerance:
+        while first > 0 and abs(position(fronts[first - 1]) - x) <= tolerance:
             first -= 1
-        while last + 1 < len(fronts) and abs(fronts[last + 1].x - x) <= tolerance:
+        while last + 1 < len(fronts) and abs(position(fronts[last + 1]) - x) <= tolerance:
             last += 1
 
         outgoing = resolve_interaction(fronts[first], fronts[last], self.flux)
         for front in outgoing:
-            front.x = x  # All waves in the new Riemann fan share one origin.
+            # All waves in the new Riemann fan share one origin and anchor.
+            front.x, front.t0 = x, self.time
+        for front in fronts[first:last + 1]:
+            self._retire(front)
         fronts[first:last + 1] = outgoing
         self.event_count += 1
-
-    def run(self, final_time: float):
-        """Advance to absolute final_time, resolving events exactly at that time.
-
-        Returns self for chaining. Calling again continues the current solution;
-        going backward is rejected. An event-limit error leaves the state at
-        its last completed event so it can be inspected or resumed.
-        """
-        if not math.isfinite(final_time) or final_time < self.time:
-            raise ValueError("final_time must be finite and at least the current time")
-        while True:
-            dt, pair_index = next_interaction(self.fronts)
-            remaining = final_time - self.time
-            if pair_index is None or dt > remaining:
-                # No interaction before the observation time: pure translation.
-                self._advance(remaining)
-                self.time = float(final_time)
-                return self
-            if self.event_count >= self.max_events:
-                raise RuntimeError("Event limit reached; inspect data or raise max_events")
-
-            self._advance(dt)
-            self._resolve_cluster(pair_index)
-            # Re-scan because the replacement fronts have new neighbors/speeds.
-            # A separate simultaneous collision has dt=0 on the next iteration.
+        # Only the new fronts and the left outer neighbour have new right
+        # neighbours; every other queued prediction is still valid.
+        self._refresh(range(first - 1, first + len(outgoing)))
 
     def snapshot(self):
         """Independent copies of front geometry; this is not a full restart file."""

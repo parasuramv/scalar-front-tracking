@@ -7,13 +7,15 @@ not a 2D PDE restricted to a curve, and there are no far-field states.
 
 Fronts live on an ordered lift spanning at most one circumference. A common
 translation by an integer number of periods keeps coordinates small; individual
-fronts are never independently wrapped and sorted during evolution.
+fronts are never independently wrapped and sorted during evolution. The event
+loop (anchored fronts, priority queue) is shared with solver.py via events.py.
 """
 from dataclasses import dataclass, replace
 import math
 
 import numpy as np
 
+from .events import AnchoredEventDriver
 from .fronts import Front, FrontCollection
 from .interactions import resolve_interaction
 from .riemann import solve_riemann
@@ -52,7 +54,7 @@ class Circle:
         return float(result) if points.ndim == 0 else result
 
 
-class PeriodicFrontTracker:
+class PeriodicFrontTracker(AnchoredEventDriver):
     """Evolve u_t + f(u)_x = 0 on Circle.
 
     N breakpoints require N states: state[j] occupies the positively oriented
@@ -61,6 +63,8 @@ class PeriodicFrontTracker:
     flux-node indices; from_values quantizes physical values. run(T) uses
     absolute time. Live fronts are internal; snapshot() returns copies.
     """
+    _event_limit_message = "Event limit reached; inspect or increase max_events"
+
     def __init__(self, flux, positions, states, *, domain=None,
                  position_tol=1e-12, max_events=100000, record_history=False):
         self.domain = Circle() if domain is None else domain
@@ -122,121 +126,113 @@ class PeriodicFrontTracker:
         """Live fronts in cyclic order on the current lift. Do not modify."""
         return self.collection.fronts
 
-    def _next_interaction(self):
-        """Return (waiting time, left index of pair), or (inf, None).
+    def _pair(self, i):
+        """(left, right, gap now) for the pair owned by front i, or None.
 
         Same closing-speed test as the real-line driver, but adjacency is
         cyclic: the last front's right neighbour is the first front, one
-        circumference further along. Coincident fans with ordered speeds are
-        separating (closing <= 0) and never trigger an event.
+        circumference further along. Only that wraparound pair needs +L: the
+        lift is ordered and spans at most one circumference.
         """
-        fronts, length = self.fronts, self.domain.length
-        best, pair = math.inf, None
-        if len(fronts) < 2:
-            return best, pair
-        for i, left in enumerate(fronts):
-            right = fronts[(i + 1) % len(fronts)]
-            closing = left.speed - right.speed
-            if closing > 0:
-                # Only the wraparound pair needs +L: the lift is ordered and
-                # spans at most one circumference, so other gaps are direct.
-                gap = right.x - left.x + (length if i == len(fronts) - 1 else 0)
-                wait = max(0.0, gap / closing)  # clamp roundoff-negative gaps
-                if wait < best:
-                    best, pair = wait, i
-        return best, pair
+        fronts = self.fronts
+        n = len(fronts)
+        if n < 2 or not 0 <= i < n:
+            return None
+        left = fronts[i]
+        right = fronts[i + 1] if i + 1 < n else fronts[0]
+        gap = self._position(right) - self._position(left)
+        return left, right, gap + (self.domain.length if i + 1 == n else 0.0)
 
-    def _advance(self, dt):
-        """Translate all fronts, then shift the whole lift back into the chart.
+    def _record_path(self, x0, t0, speed, t1):
+        """Record a straight path, split at chart seams (no false diagonals)."""
+        o, length, dt = self.domain.origin, self.domain.length, t1 - t0
+        end = x0 + speed * dt
+        cuts = [0.0, dt]
+        if speed != 0:
+            lo, hi = sorted((x0, end))
+            for k in range(math.floor((lo - o) / length) + 1, math.ceil((hi - o) / length)):
+                crossing = (o + k * length - x0) / speed
+                if 0 < crossing < dt:
+                    cuts.append(crossing)
+        cuts.sort()
+        for a, b in zip(cuts[:-1], cuts[1:]):
+            shift = math.floor((x0 + speed * (a + b) / 2 - o) / length) * length
+            self.segments.append((x0 + speed * a - shift, t0 + a,
+                                  x0 + speed * b - shift, t0 + b))
+
+    def _normalize(self):
+        """Shift the whole lift by whole periods so front 0 is in the chart.
 
         The shift is the same for every front (an integer number of periods up
         to roundoff), so cyclic order and all separations are preserved; it
         only stops coordinates growing without bound over many circuits.
         """
-        if self.record_history and dt > 0:
-            # Split paths at chart seams: never draw a false diagonal across a wrap.
-            o, length = self.domain.origin, self.domain.length
-            for f in self.fronts:
-                end = f.x + f.speed * dt
-                cuts = [0.0, dt]
-                if f.speed != 0:
-                    lo, hi = sorted((f.x, end))
-                    for k in range(math.floor((lo-o)/length)+1, math.ceil((hi-o)/length)):
-                        crossing = (o+k*length-f.x)/f.speed
-                        if 0 < crossing < dt:
-                            cuts.append(crossing)
-                cuts.sort()
-                for a, b in zip(cuts[:-1], cuts[1:]):
-                    shift = math.floor((f.x+f.speed*(a+b)/2-o)/length)*length
-                    self.segments.append((f.x+f.speed*a-shift, self.time+a,
-                                          f.x+f.speed*b-shift, self.time+b))
-        self.collection.advance(dt)
-        self.time += dt
         if self.fronts:
             first = self.fronts[0].x
             shift = first - self.domain.wrap(first)
-            for front in self.fronts:
-                front.x -= shift
+            if shift:
+                for front in self.fronts:
+                    front.x -= shift
 
-    def _resolve(self, pair):
+    def _resolve_cluster(self, pair):
         """Replace the collision cluster containing ``pair`` and its neighbour.
 
-        Fronts must already be advanced to the collision time. As on the line,
-        the new Riemann problem uses only the cluster's two exterior states.
+        Runs at the collision time. As on the line, the new Riemann problem
+        uses only the cluster's two exterior states. A cluster that straddles
+        the end of the list is made contiguous by moving the few fronts past
+        the end round to the other side (anchor +-L); this keeps the lift
+        ordered and cyclic adjacency, hence every queued prediction, intact.
         """
-        fronts, length = self.fronts, self.domain.length
-        incoming = fronts[pair]
-        # Cut the circular list inside its largest empty arc. The colliding
-        # cluster then lies in the interior of the ordered lifted list, even
-        # when the collision occurred across the old coordinate seam.
-        gaps = [fronts[i + 1].x - fronts[i].x for i in range(len(fronts) - 1)]
-        gaps.append(fronts[0].x + length - fronts[-1].x)
-        start = (int(np.argmax(gaps)) + 1) % len(fronts)
-        if start:
-            head = fronts[:start]
-            for front in head:
-                front.x += length
-            fronts[:] = fronts[start:] + head
-        pair = next(i for i, front in enumerate(fronts) if front is incoming)
+        fronts, length, position = self.fronts, self.domain.length, self._position
         if pair == len(fronts) - 1:
-            raise RuntimeError("Cyclic collision ordering lost; check coordinate scale")
+            # Wraparound pair: bring its right front (index 0) to the tail.
+            head = fronts.pop(0)
+            head.x += length
+            fronts.append(head)
+            pair -= 1
         # Same grouping rule as upstream: compare every candidate with the
         # event point (not its neighbour) so small gaps cannot chain together.
-        x = (fronts[pair].x + fronts[pair + 1].x) / 2
+        x = (position(fronts[pair]) + position(fronts[pair + 1])) / 2
         tol = self.position_tol + 16 * np.finfo(float).eps * max(length, abs(x))
         first, last = pair, pair + 1
-        while first > 0 and abs(fronts[first - 1].x - x) <= tol:
-            first -= 1
-        while last + 1 < len(fronts) and abs(fronts[last + 1].x - x) <= tol:
-            last += 1
+        while last - first + 1 < len(fronts):
+            if first > 0:
+                if abs(position(fronts[first - 1]) - x) > tol:
+                    break
+                first -= 1
+            else:  # Candidate: the tail front, one circumference back.
+                if abs(position(fronts[-1]) - length - x) > tol:
+                    break
+                tail = fronts.pop()
+                tail.x -= length
+                fronts.insert(0, tail)
+                last += 1
+        while last - first + 1 < len(fronts):
+            if last + 1 < len(fronts):
+                if abs(position(fronts[last + 1]) - x) > tol:
+                    break
+                last += 1
+            else:  # Candidate: the head front, one circumference on.
+                if abs(position(fronts[0]) + length - x) > tol:
+                    break
+                head = fronts.pop(0)
+                head.x += length
+                fronts.append(head)
+                first -= 1  # ``last`` (unchanged) now indexes the moved head
         # If the cluster was every front, its exterior states coincide (the
         # state chain is cyclic), no fronts come out, and this is the constant.
         self._constant_state = fronts[first].iL
         outgoing = resolve_interaction(fronts[first], fronts[last], self.flux)
         for front in outgoing:
-            front.x = x
+            front.x, front.t0 = x, self.time
+        for front in fronts[first:last + 1]:
+            self._retire(front)
         fronts[first:last + 1] = outgoing
         self.event_count += 1
-        self._advance(0.0)  # Re-normalize the lift after the cut above.
-
-    def run(self, final_time):
-        """Advance to absolute ``final_time``; returns self. See the real-line
-        driver: events exactly at final_time are resolved before returning, and
-        an event-limit error leaves the last completed state intact.
-        """
-        if not math.isfinite(final_time) or final_time < self.time:
-            raise ValueError("final_time must be finite and at least the current time")
-        while True:
-            wait, pair = self._next_interaction()
-            remaining = final_time - self.time
-            if pair is None or wait > remaining:
-                self._advance(remaining)
-                self.time = float(final_time)
-                return self
-            if self.event_count >= self.max_events:
-                raise RuntimeError("Event limit reached; inspect or increase max_events")
-            self._advance(wait)
-            self._resolve(pair)
+        n = len(fronts)
+        if n:
+            # New fronts and the cyclic left neighbour own changed pairs.
+            self._refresh({k % n for k in range(first - 1, first + len(outgoing))})
 
     def sample(self, x):
         """Right-continuous values at any finite coordinates (wrapped), same shape."""
