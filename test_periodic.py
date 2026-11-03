@@ -97,6 +97,28 @@ class PeriodicTests(unittest.TestCase):
         self.assertEqual(s.sample(0.3), 0)
         self.check_invariants(s)
 
+    def test_three_way_collision_across_list_end(self):
+        """Shocks at 8 and 9 (list tail) meet the shock at 0 (list head) at x=0.5.
+
+        Burgers on node values 0..3, Circle of length 10: speeds 2.5, 1.5, 0.5
+        all reach 10.5 = 0.5 at t=1, while the fan from x=3 is far away. The
+        cluster straddles the end of the ordered list and is one event.
+        """
+        flux = DiscreteFlux(lambda u: u*u/2, [0, 1, 2, 3])
+        s = Tracker(flux, [0.0, 3.0, 8.0, 9.0], [0, 3, 2, 1], domain=Circle(10.0))
+        mass = s.integral()
+        s.run(1.0)
+        self.assertEqual(s.event_count, 1)
+        shock = [f for f in s.fronts if (f.iL, f.iR) == (3, 0)]
+        self.assertEqual(len(shock), 1)
+        self.assertAlmostEqual(float(s.domain.wrap(shock[0].x)), 0.5)
+        self.assertAlmostEqual(shock[0].speed, 1.5)
+        self.assertAlmostEqual(s.integral(), mass)
+        self.check_invariants(s)
+        s.run(3.0)  # the shock then meets the fan from the other side
+        self.assertAlmostEqual(s.integral(), mass)
+        self.check_invariants(s)
+
     def test_event_limit_validation_snapshot(self):
         s = Tracker.from_values(self.flux, [0, 0.5], [1, 0], max_events=1)
         snap = s.snapshot()

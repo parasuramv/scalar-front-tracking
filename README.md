@@ -166,6 +166,7 @@ names (`from fronttrack import DiscreteFlux, FrontTracker, solve_riemann`).
 | `riemann.py` | Construct the entropy hull for one jump | `solve_riemann(iL, iR, flux)` |
 | `fronts.py` | Store moving jumps and initialize all initial Riemann problems | `Front`, `FrontCollection`, `initial_fronts` |
 | `interactions.py` | Find the earliest adjacent collision and construct outgoing waves | `next_interaction`, `resolve_interaction` |
+| `events.py` | Shared event loop: anchored fronts and a priority queue of predicted collisions | internal base of both drivers |
 | `solver.py` | Evolve the solution, resolve clusters, sample, integrate and record paths | `FrontTracker` |
 | `periodic.py` | The same driver on the circle: cyclic adjacency, seam collisions, whole-circle mass | `Circle`, `PeriodicFrontTracker` |
 | `main.py` (root) | Choose example data, run requested output times, save arrays/CSV/plots | CLI entry point |
@@ -379,9 +380,12 @@ the line or the circle, not a solver for systems, source terms, spatially varyin
 fluxes, multidimensional domains, or imposed boundary conditions. Plot limits only crop observations; they do not
 introduce boundaries, and fronts outside the visible window keep evolving.
 
-Collision prediction scans all adjacent fronts and advancement moves all of them,
-so each event costs $O(\text{number of fronts})$, plus a local hull construction;
-there is no heap-based event queue. Trajectory
+Fronts are never stepped: during `run` each keeps an anchor (position and time)
+and moves in closed form, and predicted collisions of adjacent pairs wait in a
+priority queue (`events.py`). An event re-predicts only the pairs next to it,
+and the Riemann hull visits only nodes that can be envelope vertices, so a run
+costs about $O((F+E)\log F)$ for $F$ fronts and $E$ events. `run` restores every
+`Front.x` to the current time before it returns. Trajectory
 history can also grow substantially. For large runs set `record_history=False`;
 `segments` then stays empty. Increase `max_events` from its default 100000 only
 when appropriate; hitting the limit raises an error with the simulation left at

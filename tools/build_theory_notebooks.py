@@ -224,6 +224,13 @@ node, $b$ survives only if it lies *strictly below* the chord $a\to n$; otherwis
 and the test repeats. Every node is pushed once and popped at most once, so the cost is
 $O(|i_R-i_L|)$.
 
+The library adds one shortcut. A vertex of the lower envelope must lie strictly below the
+chord of *any* two nodes on either side of it, in particular its two grid neighbours. So a
+node that is clearly above the chord of its neighbours can never be a vertex. `fronttrack`
+lists the remaining candidates once per flux and the stack visits only those. For a convex
+flux a decreasing jump (a shock) then visits just its two end nodes. The envelope is
+the same, so the cell below still visits every node.
+
 "Strictly below" needs care in floating point, and the cubic shows why: see below the figure.
 
 The cell below re-implements the loop with a record of each step, checks the result against
@@ -429,8 +436,9 @@ $\binom N2$ pairs. A pair $(j,j+1)$ collides only if it is closing,
 $s_j>s_{j+1}$, and then after time $(x_{j+1}-x_j)/(s_j-s_{j+1})$. This is
 `next_interaction`. The same argument gives a second saving: an event
 changes only the fronts at one point, so only the (at most two) pairs next to it get
-new collision times. A priority queue would therefore cost $O(\log N)$ per event instead of
-$O(N)$. `fronttrack` keeps the readable $O(N)$ scan.
+new collision times. A priority queue therefore costs $O(\log N)$ per event instead of
+$O(N)$. The loop below keeps the readable $O(N)$ scan; `fronttrack` itself keeps the
+pair predictions in a heap and moves each front in closed form, $x(t)=x_0+s\,(t-t_0)$.
 """),
         md(r"""
 ## 2. The event loop in a dozen lines
@@ -693,7 +701,8 @@ plt.show()
 For Burgers the curve lies on the diagonal: every event removed exactly one front. For
 $\sin 3u$ it rises above it, since some events leave the front count unchanged. The event count
 is still finite, but it is no longer bounded by $N(0)$ alone. The total work is
-$O(N\cdot E)$ with the scan of §1.
+$O(N\cdot E)$ with the scan of §1, and $O((N+E)\log N)$ with the priority queue that
+`fronttrack` uses.
 """),
         md(r"""
 ## 7. Try it yourself
@@ -1811,9 +1820,9 @@ The last column is at most $1$, as the claim requires. The event count doubles e
 halved, for the nonconvex fluxes as well as for Burgers, and $E/N(0)$ stays close to $1$ for Burgers and
 near $1.2$ for the others. That linear growth is an observation for these data, not a theorem.
 
-For the cost of a computation this means: about $1/\delta$ events, each found by the $O(N)$ scan of notebook
-04, so about $1/\delta^2$ operations in all. A priority queue of collision times would bring this down to
-about $(1/\delta)\log(1/\delta)$.
+For the cost of a computation this means: about $1/\delta$ events. Found by the $O(N)$ scan of notebook
+04, that is about $1/\delta^2$ operations in all. `fronttrack` keeps the collision times in a priority
+queue instead, which brings this down to about $(1/\delta)\log(1/\delta)$.
 
 ## 6. What is not stable
 
