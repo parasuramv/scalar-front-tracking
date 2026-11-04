@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import _srcpath  # noqa: F401  (finds src/fronttrack without installation)
 from fronttrack.flux import DiscreteFlux
-from fronttrack.riemann import solve_riemann, enforce_entropy
+from fronttrack.riemann import _COLLINEAR_FACTOR, solve_riemann, enforce_entropy
 
 
 class RiemannTests(unittest.TestCase):
@@ -106,6 +106,66 @@ class CollinearRoundoffTests(unittest.TestCase):
         grid = np.concatenate([-h[::-1], [0], h])
         flux = DiscreteFlux(lambda u: u*u/2, grid)
         self.assertEqual(len(solve_riemann(0, len(grid) - 1, flux)), len(grid) - 1)
+
+
+def full_scan_riemann(iL, iR, flux):
+    """The envelope stack visiting EVERY node between iL and iR (no filter)."""
+    if iL == iR:
+        return []
+    side = 1.0 if iL < iR else -1.0
+    u, f = flux.u_grid, flux.f_values
+    u_scale = max(abs(u[0]), abs(u[-1]))
+    hull = []
+    for c in range(min(iL, iR), max(iL, iR) + 1):
+        while len(hull) >= 2:
+            a, b = hull[-2], hull[-1]
+            rise, run = f[c] - f[a], u[c] - u[a]
+            gap = (f[b] - f[a]) - rise * ((u[b] - u[a]) / run)
+            scale = max(abs(f[a]), abs(f[b]), abs(f[c])) + abs(rise / run) * u_scale
+            if side * gap < -_COLLINEAR_FACTOR * scale:
+                break
+            hull.pop()
+        hull.append(c)
+    speeds = [float((f[b] - f[a]) / (u[b] - u[a])) for a, b in zip(hull, hull[1:])]
+    if side < 0:
+        hull.reverse()
+        speeds.reverse()
+    return [(a, b, s) for (a, b), s in zip(zip(hull, hull[1:]), speeds)]
+
+
+class CandidateFilterTests(unittest.TestCase):
+    """solve_riemann skips nodes that cannot be envelope vertices; the
+    result must be identical to visiting every node, collinear cases included."""
+
+    def test_identical_to_full_scan(self):
+        rng = np.random.default_rng(11)
+        cases = [
+            (lambda u: u*u/2, np.linspace(-1, 1, 41)),
+            (lambda u: u**3, np.linspace(-1, 1, 21)),     # collinear chords
+            (lambda u: u**3, np.linspace(-1, 1, 101)),
+            (lambda u: np.sin(3*u), np.linspace(-1, 1, 61)),
+            (lambda u: 2*u - 1, np.linspace(-1, 1, 11)),  # every node collinear
+            (lambda u: np.abs(u), np.linspace(-1, 1, 21)),
+            (lambda u: u**3 - u, np.sort(np.r_[-1, 1, rng.uniform(-1, 1, 40)])),
+        ]
+        values = rng.standard_normal(30)
+        cases.append((lambda u: values if np.ndim(u) else 0.0, np.linspace(-1, 1, 30)))
+        for f, grid in cases:
+            flux = DiscreteFlux(f, grid)
+            n = len(grid)
+            for left in range(n):
+                for right in range(n):
+                    self.assertEqual(solve_riemann(left, right, flux),
+                                     full_scan_riemann(left, right, flux), (left, right))
+
+    def test_convex_shock_visits_only_endpoints(self):
+        """For a strictly convex flux no interior node can be on the upper envelope."""
+        from fronttrack.riemann import _hull_candidates
+        flux = DiscreteFlux(lambda u: u*u/2, np.linspace(0, 1, 4097))
+        lower, upper = _hull_candidates(flux)
+        self.assertEqual(len(upper), 0)
+        self.assertEqual(len(lower), 4095)
+        self.assertEqual(solve_riemann(4096, 0, flux), [(4096, 0, 0.5)])
 
 
 if __name__ == "__main__":

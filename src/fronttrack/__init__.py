@@ -6,6 +6,7 @@ Public API (read the modules in this order):
 - ``solve_riemann``  (riemann.py)       entropy envelope of one jump
 - ``Front``, ``FrontCollection``, ``initial_fronts`` (fronts.py)
 - ``next_interaction``, ``resolve_interaction``      (interactions.py)
+- ``AnchoredEventDriver`` (events.py)   shared event queue behind both drivers
 - ``FrontTracker``   (solver.py)        event-driven evolution driver on R
 - ``Circle``, ``PeriodicFrontTracker`` (periodic.py)  the same driver on S^1
 

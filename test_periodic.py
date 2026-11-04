@@ -21,6 +21,23 @@ class PeriodicTests(unittest.TestCase):
             self.assertGreaterEqual(min(np.diff([f.x for f in s.fronts]), default=0), -1e-12)
             self.assertLessEqual(s.fronts[-1].x - s.fronts[0].x, s.domain.length + 1e-12)
 
+    def test_cluster_after_many_periods_preserves_separate_arc(self):
+        for drift in (0, 2**40, -2**40):
+            with self.subTest(drift=drift):
+                flux = DiscreteFlux(lambda u: drift*u + u*u/2, [0, 1, 2])
+                sim = Tracker(flux, [0, 0.5 - 2**-12], [2, 0])
+                mass = sim.integral()
+                sim.run(1 - 2**-11)
+                self.assertEqual(len(sim.fronts), 2)
+                self.assertEqual(sim.integral(), mass)
+
+    def test_seam_cluster_absorbs_entire_fan(self):
+        flux = DiscreteFlux(lambda u: u*u/2, np.linspace(0, 1, 1025))
+        sim = Tracker.from_values(flux, [0, 1 - 1e-14], [0, 1]).run(1)
+        self.assertEqual(sim.event_count, 1)
+        self.assertEqual(len(sim.fronts), 0)
+        self.assertEqual(sim.integral(), 0)
+
     def test_constant_and_empty_fronts(self):
         for positions, values in [([], [0.5]), ([0, 0.5], [0.5, 0.5])]:
             s = Tracker.from_values(self.flux, positions, values, domain=Circle(3, -1))
@@ -95,6 +112,28 @@ class PeriodicTests(unittest.TestCase):
         self.assertAlmostEqual(s.integral(), mass)
         self.assertEqual(s.fronts, [])
         self.assertEqual(s.sample(0.3), 0)
+        self.check_invariants(s)
+
+    def test_three_way_collision_across_list_end(self):
+        """Shocks at 8 and 9 (list tail) meet the shock at 0 (list head) at x=0.5.
+
+        Burgers on node values 0..3, Circle of length 10: speeds 2.5, 1.5, 0.5
+        all reach 10.5 = 0.5 at t=1, while the fan from x=3 is far away. The
+        cluster straddles the end of the ordered list and is one event.
+        """
+        flux = DiscreteFlux(lambda u: u*u/2, [0, 1, 2, 3])
+        s = Tracker(flux, [0.0, 3.0, 8.0, 9.0], [0, 3, 2, 1], domain=Circle(10.0))
+        mass = s.integral()
+        s.run(1.0)
+        self.assertEqual(s.event_count, 1)
+        shock = [f for f in s.fronts if (f.iL, f.iR) == (3, 0)]
+        self.assertEqual(len(shock), 1)
+        self.assertAlmostEqual(float(s.domain.wrap(shock[0].x)), 0.5)
+        self.assertAlmostEqual(shock[0].speed, 1.5)
+        self.assertAlmostEqual(s.integral(), mass)
+        self.check_invariants(s)
+        s.run(3.0)  # the shock then meets the fan from the other side
+        self.assertAlmostEqual(s.integral(), mass)
         self.check_invariants(s)
 
     def test_event_limit_validation_snapshot(self):

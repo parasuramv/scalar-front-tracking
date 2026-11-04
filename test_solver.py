@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import _srcpath  # noqa: F401  (finds src/fronttrack without installation)
 from fronttrack.flux import DiscreteFlux
-from fronttrack.fronts import Front
+from fronttrack.fronts import Front, initial_fronts
 from fronttrack.interactions import next_interaction, resolve_interaction
 from fronttrack.solver import FrontTracker
 
@@ -25,6 +25,13 @@ class SolverTests(unittest.TestCase):
         self.assertAlmostEqual(sim.fronts[0].x, 0)
         sim.run(10)
         np.testing.assert_array_equal(sim.sample([-1, 0, 1]), [1, -1, -1])
+
+    def test_rightmost_annihilation_invalidates_predecessor_prediction(self):
+        flux = DiscreteFlux(lambda u: u*u/2, [0, 1, 2, 3])
+        sim = FrontTracker(flux, [-1, 0, 1e-13], [3, 0, 2, 0]).run(2)
+        self.assertEqual(sim.event_count, 1)
+        self.assertEqual(len(sim.fronts), 1)
+        self.assertAlmostEqual(sim.fronts[0].x, 2)
 
     def test_constant_and_annihilation(self):
         """No-jump solutions remain constant; equal exterior states cancel locally."""
@@ -154,6 +161,64 @@ class SolverTests(unittest.TestCase):
         self.assertEqual(sim.event_count, 1)
         self.assertEqual([(f.iL, f.iR) for f in sim.fronts], [(1, 15)])
         self.assertAlmostEqual(sim.fronts[0].speed, 0.61)
+
+    def test_queue_matches_full_rescan(self):
+        """The priority queue must reproduce the scan-every-pair driver.
+
+        The reference below is the textbook loop: find the earliest adjacent
+        collision by scanning all pairs, move every front, resolve, repeat.
+        """
+        def reference(flux, positions, states, T):
+            fronts = initial_fronts(positions, states, flux).fronts
+            t = 0.0
+            while True:
+                dt, i = next_interaction(fronts)
+                if i is None or dt > T - t:
+                    for f in fronts:
+                        f.x += f.speed * (T - t)
+                    return fronts
+                for f in fronts:
+                    f.x += f.speed * dt
+                t += dt
+                x = 0.5 * (fronts[i].x + fronts[i + 1].x)
+                tol = 1e-12 + 16 * np.finfo(float).eps * max(1.0, abs(x))
+                first, last = i, i + 1
+                while first > 0 and abs(fronts[first - 1].x - x) <= tol:
+                    first -= 1
+                while last + 1 < len(fronts) and abs(fronts[last + 1].x - x) <= tol:
+                    last += 1
+                out = resolve_interaction(fronts[first], fronts[last], flux)
+                for f in out:
+                    f.x = x
+                fronts[first:last + 1] = out
+
+        rng = np.random.default_rng(21)
+        for f in (lambda u: u*u/2, lambda u: u**3, lambda u: np.sin(3*u)):
+            flux = DiscreteFlux(f, np.linspace(-1, 1, 41))
+            for _ in range(20):
+                x = np.sort(rng.uniform(-3, 3, 25))
+                states = rng.integers(0, 41, 26)
+                expected = reference(flux, x, states, 4.0)
+                sim = FrontTracker(flux, x, states, record_history=False)
+                for t in (0.5, 2.0, 4.0):  # resuming must not matter
+                    sim.run(t)
+                self.assertEqual([(f.iL, f.iR) for f in sim.fronts],
+                                 [(f.iL, f.iR) for f in expected])
+                np.testing.assert_allclose([f.x for f in sim.fronts],
+                                           [f.x for f in expected], atol=1e-12)
+
+    def test_positions_current_after_event_limit(self):
+        """Front.x is the position at the tracker's clock even after an error."""
+        sim = FrontTracker.from_values(burgers(), [-1, 0, 1, 2], [1, 0.5, 0, 0.5, 0],
+                                       max_events=1, record_history=False)
+        with self.assertRaises(RuntimeError):
+            sim.run(10)
+        self.assertGreater(sim.time, 0)
+        free = FrontTracker.from_values(burgers(), [-1, 0, 1, 2], [1, 0.5, 0, 0.5, 0],
+                                        record_history=False).run(sim.time)
+        self.assertEqual(free.event_count, 1)
+        np.testing.assert_allclose([f.x for f in sim.fronts], [f.x for f in free.fronts])
+        self.assertEqual(sim.snapshot(), free.snapshot())
 
     def test_no_zero_time_event_loop(self):
         """Many u**3 runs with collinear chords finish well within max_events."""
