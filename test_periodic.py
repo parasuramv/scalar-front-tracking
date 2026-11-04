@@ -10,6 +10,7 @@ from fronttrack.flux import DiscreteFlux
 from fronttrack.periodic import Circle, PeriodicFrontTracker as Tracker
 from fronttrack.solver import FrontTracker
 from fronttrack.visualization import observe_tracker
+from test_solver import CountingList, unlinked
 class PeriodicTests(unittest.TestCase):
     def setUp(self):
         self.flux = DiscreteFlux(lambda u: u*u/2, np.linspace(-1, 1, 21))
@@ -135,6 +136,23 @@ class PeriodicTests(unittest.TestCase):
         s.run(3.0)  # the shock then meets the fan from the other side
         self.assertAlmostEqual(s.integral(), mass)
         self.check_invariants(s)
+
+    def test_linked_run_touches_list_only_at_boundaries(self):
+        """Seam crossings and wraps are relinked, never spliced into the list."""
+        flux = DiscreteFlux(lambda u: u**3 + 2*u, np.linspace(-1, 1, 161))  # drifts across the seam
+        s = Tracker.from_function(flux, lambda x: np.sin(2*np.pi*x), cells=256, record_history=True)
+        s.collection.fronts = counting = CountingList(s.fronts)
+        s.run(3.0)
+        self.assertGreater(s.event_count, 100)
+        self.assertLess(counting.ops, 25)
+        self.assertIs(s.fronts, counting)
+        self.assertTrue(unlinked(s.fronts))
+        self.check_invariants(s)
+        limited = Tracker.from_function(flux, lambda x: np.sin(2*np.pi*x), cells=64, max_events=5)
+        with self.assertRaises(RuntimeError):
+            limited.run(3.0)
+        self.assertTrue(unlinked(limited.fronts))
+        self.check_invariants(limited)
 
     def test_event_limit_validation_snapshot(self):
         s = Tracker.from_values(self.flux, [0, 0.5], [1, 0], max_events=1)

@@ -23,7 +23,9 @@ class Front:
     While a driver's ``run`` is in progress, ``x`` is instead the position at
     the anchor time ``t0`` (see events.py); ``run`` restores the current
     position before it returns. ``version`` stamps the front's queued
-    collision prediction. Neither takes part in comparison or repr.
+    collision prediction, and ``prev``/``next`` link the live fronts in
+    spatial order. They exist only during ``run`` (None otherwise). None of
+    these four takes part in comparison or repr, and copies never share links.
     """
 
     x: float
@@ -32,6 +34,8 @@ class Front:
     speed: float
     t0: float = field(default=0.0, compare=False, repr=False)
     version: int = field(default=0, compare=False, repr=False)
+    prev: "Front | None" = field(default=None, init=False, compare=False, repr=False)
+    next: "Front | None" = field(default=None, init=False, compare=False, repr=False)
 
 
 class FrontCollection:

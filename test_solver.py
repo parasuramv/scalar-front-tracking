@@ -228,5 +228,110 @@ class SolverTests(unittest.TestCase):
                                max_events=200, record_history=False)
             sim.run(10.0)  # raises RuntimeError on a livelock
 
+
+class CountingList(list):
+    """A list that counts how often it is touched, to show drivers stay off
+    the public front list while ``run`` resolves events (they use links)."""
+
+    ops = 0
+
+    def _touch(self):
+        self.ops += 1
+
+    def __getitem__(self, i):
+        self._touch()
+        return super().__getitem__(i)
+
+    def __setitem__(self, i, v):
+        self._touch()
+        super().__setitem__(i, v)
+
+    def __delitem__(self, i):
+        self._touch()
+        super().__delitem__(i)
+
+    def __iter__(self):
+        self._touch()
+        return super().__iter__()
+
+    def __len__(self):
+        self._touch()
+        return super().__len__()
+
+
+def unlinked(fronts):
+    return all(f.prev is None and f.next is None for f in fronts)
+
+
+class LinkedFrontTests(unittest.TestCase):
+    """During run() fronts are a linked list; outside it, only the list exists."""
+
+    def setUp(self):
+        rng = np.random.default_rng(3)
+        self.flux = DiscreteFlux(lambda u: u**3, np.linspace(-1, 1, 65))
+        self.positions = np.sort(rng.uniform(-3, 3, 60))
+        self.states = rng.integers(0, 65, 61)
+
+    def make(self, **kwargs):
+        return FrontTracker(self.flux, self.positions, self.states,
+                            record_history=False, **kwargs)
+
+    def test_no_list_work_per_event(self):
+        sim = self.make()
+        sim.collection.fronts = counting = CountingList(sim.fronts)
+        sim.run(3.0)
+        self.assertGreater(sim.event_count, 100)
+        # A handful of list operations per run(), independent of the events.
+        self.assertLess(counting.ops, 20)
+        self.assertIs(sim.fronts, counting)  # rebuilt in place, same object
+        self.assertTrue(unlinked(sim.fronts))
+        self.assertTrue(unlinked(sim.snapshot()))
+
+    def test_hooks_see_current_fronts_during_run(self):
+        """A subclass hook reading fronts mid-run sees the current fronts."""
+        log = []
+
+        class Recording(FrontTracker):
+            def _resolve_cluster(self, front):
+                before = self.total_variation()
+                super()._resolve_cluster(front)
+                fronts = self.fronts
+                log.append((before, self.total_variation(),
+                            all(a.iR == b.iL for a, b in zip(fronts, fronts[1:]))))
+
+        sim = Recording(self.flux, self.positions, self.states, record_history=False)
+        sim.run(3.0)
+        self.assertEqual(len(log), sim.event_count)
+        self.assertTrue(all(chained for _, _, chained in log))
+        self.assertTrue(all(after <= before + 1e-12 for before, after, _ in log))
+        self.assertGreater(sum(after < before - 1e-12 for before, after, _ in log), len(log) // 2)
+        self.assertTrue(unlinked(sim.fronts))
+
+    def test_edits_between_runs_are_relinked(self):
+        edited, twin = self.make(), self.make()
+        edited.run(0.5)
+        twin.run(0.5)
+        edited.fronts[:] = edited.snapshot()  # fresh, unlinked copies
+        edited.run(3.0)
+        twin.run(3.0)
+        self.assertEqual(edited.snapshot(), twin.snapshot())
+        self.assertEqual(edited.event_count, twin.event_count)
+
+    def test_unlinked_after_event_limit(self):
+        sim = self.make(max_events=7)
+        with self.assertRaises(RuntimeError):
+            sim.run(3.0)
+        self.assertEqual(sim.event_count, 7)
+        self.assertTrue(unlinked(sim.fronts))
+        sim.max_events = 10**6
+        sim.run(3.0)
+        # Resuming re-anchors at the pause, so positions agree up to roundoff.
+        free = self.make().run(3.0)
+        self.assertEqual([(f.iL, f.iR, f.speed) for f in sim.fronts],
+                         [(f.iL, f.iR, f.speed) for f in free.fronts])
+        np.testing.assert_allclose([f.x for f in sim.fronts], [f.x for f in free.fronts],
+                                   rtol=0, atol=1e-12)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -55,48 +55,48 @@ class FrontTracker(AnchoredEventDriver):
         """Map physical values to nearest flux nodes and initialize the tracker."""
         return cls(flux, positions, flux.state_index(values), **kwargs)
 
-    @property
-    def fronts(self):
-        """Live spatially ordered front list. Use snapshot() for an editable copy."""
-        return self.collection.fronts
-
-    def _pair(self, i):
-        """(left, right, gap now) for the pair owned by front i, or None."""
-        fronts = self.fronts
-        if not 0 <= i < len(fronts) - 1:
+    def _pair(self, front):
+        """(front, right neighbour, gap now) for the pair front owns, or None."""
+        right = front.next
+        if right is None:
             return None
-        left, right = fronts[i], fronts[i + 1]
-        return left, right, self._position(right) - self._position(left)
+        return front, right, self._position(right) - self._position(front)
 
     def _record_path(self, x0, t0, speed, t1):
         """One straight history segment (x_start, t_start, x_end, t_end)."""
         self.segments.append((x0, t0, x0 + speed * (t1 - t0), t1))
 
-    def _resolve_cluster(self, pair_index: int) -> None:
-        """Replace the full cluster around a pair meeting at the current time."""
-        fronts, position = self.fronts, self._position
-        x = 0.5 * (position(fronts[pair_index]) + position(fronts[pair_index + 1]))
-        first, last = pair_index, pair_index + 1
+    def _resolve_cluster(self, front) -> None:
+        """Replace the full cluster around front and its right neighbour."""
+        position = self._position
+        x = 0.5 * (position(front) + position(front.next))
+        first, last = front, front.next
         tolerance = self.position_tol + _ROUNDOFF_FACTOR * max(1.0, abs(x))
 
         # Compare every member to the event point, not just its neighbor, to
         # avoid chaining many small gaps into an arbitrarily wide cluster.
-        while first > 0 and abs(position(fronts[first - 1]) - x) <= tolerance:
-            first -= 1
-        while last + 1 < len(fronts) and abs(position(fronts[last + 1]) - x) <= tolerance:
-            last += 1
+        while first.prev is not None and abs(position(first.prev) - x) <= tolerance:
+            first = first.prev
+        while last.next is not None and abs(position(last.next) - x) <= tolerance:
+            last = last.next
 
-        outgoing = resolve_interaction(fronts[first], fronts[last], self.flux)
-        for front in outgoing:
+        outgoing = resolve_interaction(first, last, self.flux)
+        for new in outgoing:
             # All waves in the new Riemann fan share one origin and anchor.
-            front.x, front.t0 = x, self.time
-        for front in fronts[first:last + 1]:
-            self._retire(front)
-        fronts[first:last + 1] = outgoing
+            new.x, new.t0 = x, self.time
+        before, after = first.prev, last.next
+        cluster = self._span(first, last)
+        for old in cluster:
+            self._retire(old)
+        # Relink only around the cluster; no other front moves.
+        self._chain([before, *outgoing, after])
+        if before is None:
+            self._head = outgoing[0] if outgoing else after
+        self._count += len(outgoing) - len(cluster)
         self.event_count += 1
         # Only the new fronts and the left outer neighbour have new right
         # neighbours; every other queued prediction is still valid.
-        self._refresh(range(first - 1, first + len(outgoing)))
+        self._refresh([before, *outgoing])
 
     def snapshot(self):
         """Independent copies of front geometry; this is not a full restart file."""
