@@ -21,6 +21,23 @@ class PeriodicTests(unittest.TestCase):
             self.assertGreaterEqual(min(np.diff([f.x for f in s.fronts]), default=0), -1e-12)
             self.assertLessEqual(s.fronts[-1].x - s.fronts[0].x, s.domain.length + 1e-12)
 
+    def test_cluster_after_many_periods_preserves_separate_arc(self):
+        for drift in (0, 2**40, -2**40):
+            with self.subTest(drift=drift):
+                flux = DiscreteFlux(lambda u: drift*u + u*u/2, [0, 1, 2])
+                sim = Tracker(flux, [0, 0.5 - 2**-12], [2, 0])
+                mass = sim.integral()
+                sim.run(1 - 2**-11)
+                self.assertEqual(len(sim.fronts), 2)
+                self.assertEqual(sim.integral(), mass)
+
+    def test_seam_cluster_absorbs_entire_fan(self):
+        flux = DiscreteFlux(lambda u: u*u/2, np.linspace(0, 1, 1025))
+        sim = Tracker.from_values(flux, [0, 1 - 1e-14], [0, 1]).run(1)
+        self.assertEqual(sim.event_count, 1)
+        self.assertEqual(len(sim.fronts), 0)
+        self.assertEqual(sim.integral(), 0)
+
     def test_constant_and_empty_fronts(self):
         for positions, values in [([], [0.5]), ([0, 0.5], [0.5, 0.5])]:
             s = Tracker.from_values(self.flux, positions, values, domain=Circle(3, -1))

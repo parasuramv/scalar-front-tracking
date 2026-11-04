@@ -178,53 +178,43 @@ class PeriodicFrontTracker(AnchoredEventDriver):
         """Replace the collision cluster containing ``pair`` and its neighbour.
 
         Runs at the collision time. As on the line, the new Riemann problem
-        uses only the cluster's two exterior states. A cluster that straddles
-        the end of the list is made contiguous by moving the few fronts past
-        the end round to the other side (anchor +-L); this keeps the lift
-        ordered and cyclic adjacency, hence every queued prediction, intact.
+        uses only the cluster's two exterior states.
+        Scan cyclic indices on one lift, then remove a seam-spanning cluster
+        in two slices so each surviving front moves at most once.
         """
         fronts, length, position = self.fronts, self.domain.length, self._position
-        if pair == len(fronts) - 1:
-            # Wraparound pair: bring its right front (index 0) to the tail.
-            head = fronts.pop(0)
-            head.x += length
-            fronts.append(head)
-            pair -= 1
-        # Same grouping rule as upstream: compare every candidate with the
-        # event point (not its neighbour) so small gaps cannot chain together.
-        x = (position(fronts[pair]) + position(fronts[pair + 1])) / 2
-        tol = self.position_tol + 16 * np.finfo(float).eps * max(length, abs(x))
+        n = len(fronts)
+
+        def lifted_position(index):
+            turns, i = divmod(index, n)
+            return position(fronts[i]) + turns * length
+
         first, last = pair, pair + 1
-        while last - first + 1 < len(fronts):
-            if first > 0:
-                if abs(position(fronts[first - 1]) - x) > tol:
-                    break
-                first -= 1
-            else:  # Candidate: the tail front, one circumference back.
-                if abs(position(fronts[-1]) - length - x) > tol:
-                    break
-                tail = fronts.pop()
-                tail.x -= length
-                fronts.insert(0, tail)
-                last += 1
-        while last - first + 1 < len(fronts):
-            if last + 1 < len(fronts):
-                if abs(position(fronts[last + 1]) - x) > tol:
-                    break
-                last += 1
-            else:  # Candidate: the head front, one circumference on.
-                if abs(position(fronts[0]) + length - x) > tol:
-                    break
-                head = fronts.pop(0)
-                head.x += length
-                fronts.append(head)
-                first -= 1  # ``last`` (unchanged) now indexes the moved head
-        # If the cluster was every front, its exterior states coincide (the
-        # state chain is cyclic), no fronts come out, and this is the constant.
+        x = (lifted_position(first) + lifted_position(last)) / 2
+        # The grouping tolerance is local to the circle, independent of how
+        # many periods the fronts have travelled together.
+        tol = self.position_tol + 16 * np.finfo(float).eps * length
+        while last - first + 1 < n and abs(lifted_position(first - 1) - x) <= tol:
+            first -= 1
+        while last - first + 1 < n and abs(lifted_position(last + 1) - x) <= tol:
+            last += 1
+
+        if first < 0:
+            # Insert outgoing fronts at the tail, on the surviving list's lift.
+            first += n
+            last += n
+            x += length
         self._constant_state = fronts[first].iL
-        outgoing = resolve_interaction(fronts[first], fronts[last], self.flux)
+        outgoing = resolve_interaction(fronts[first], fronts[last % n], self.flux)
         for front in outgoing:
             front.x, front.t0 = x, self.time
+        if last >= n:
+            prefix = last - n + 1
+            for front in fronts[:prefix]:
+                self._retire(front)
+            del fronts[:prefix]
+            first -= prefix
+            last = len(fronts) - 1
         for front in fronts[first:last + 1]:
             self._retire(front)
         fronts[first:last + 1] = outgoing

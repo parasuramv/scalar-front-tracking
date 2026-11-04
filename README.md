@@ -382,9 +382,11 @@ introduce boundaries, and fronts outside the visible window keep evolving.
 
 Fronts are never stepped: during `run` each keeps an anchor (position and time)
 and moves in closed form, and predicted collisions of adjacent pairs wait in a
-priority queue (`events.py`). An event re-predicts only the pairs next to it,
-and the Riemann hull visits only nodes that can be envelope vertices, so a run
-costs about $O((F+E)\log F)$ for $F$ fronts and $E$ events. `run` restores every
+priority queue (`events.py`). An event updates predictions for outgoing fronts and their
+left neighbor. Heap insertions and removals cost logarithmic time in the queue
+size. Total event cost also includes locating and scanning the cluster, solving
+its Riemann problem, and splicing the front list. A splice can shift a linear
+number of surviving fronts, including at the periodic seam. `run` restores every
 `Front.x` to the current time before it returns. Trajectory
 history can also grow substantially. For large runs set `record_history=False`;
 `segments` then stays empty. Increase `max_events` from its default 100000 only

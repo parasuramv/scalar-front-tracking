@@ -3,8 +3,8 @@
 A front moves on a straight line between collisions, so it never needs to be
 stepped. During ``run`` each front keeps an anchor: its position ``x`` at the
 anchor time ``t0``; the position at time t is ``x + speed * (t - t0)``. Only
-the fronts created at an event get new anchors, so an event costs time
-proportional to its cluster, not to the number of fronts.
+the fronts created at an event get new anchors, so surviving fronts need no
+position update during a collision.
 
 Predicted collisions sit in a binary heap. Front i owns the prediction for
 the gap to its right neighbour. Whenever that neighbour changes, front i's
@@ -75,11 +75,13 @@ class AnchoredEventDriver:
         """Replace the predictions owned by the fronts at these indices."""
         heap, seq, t = self._heap, self._seq, self.time
         for i in indices:
+            if not 0 <= i < len(self.fronts):
+                continue
+            self.fronts[i].version += 1
             pair = self._pair(i)
             if pair is None:
                 continue
             left, right, gap = pair
-            left.version += 1
             closing = left.speed - right.speed
             if closing > 0:
                 # Equal or separating speeds never collide, even at the same

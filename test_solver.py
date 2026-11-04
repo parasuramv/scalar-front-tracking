@@ -26,6 +26,13 @@ class SolverTests(unittest.TestCase):
         sim.run(10)
         np.testing.assert_array_equal(sim.sample([-1, 0, 1]), [1, -1, -1])
 
+    def test_rightmost_annihilation_invalidates_predecessor_prediction(self):
+        flux = DiscreteFlux(lambda u: u*u/2, [0, 1, 2, 3])
+        sim = FrontTracker(flux, [-1, 0, 1e-13], [3, 0, 2, 0]).run(2)
+        self.assertEqual(sim.event_count, 1)
+        self.assertEqual(len(sim.fronts), 1)
+        self.assertAlmostEqual(sim.fronts[0].x, 2)
+
     def test_constant_and_annihilation(self):
         """No-jump solutions remain constant; equal exterior states cancel locally."""
         sim = FrontTracker.from_values(burgers(), [], [0.3]).run(100)
