@@ -320,9 +320,10 @@ comes from the saved results in `docs/benchmarks/clawpack.json`; notebook 05, §
 explains it. Every method is first order on these problems, because shocks and
 kinks cap the accuracy. An explicit scheme pays $O(N^2)$ for error $O(1/N)$;
 front tracking pays roughly $O(N \log N)$. The gap therefore widens with accuracy:
-at $L^1$ error $10^{-4}$ fronttrack is about 400× faster on the Burgers box and
-250× faster on the nonconvex $u^3$ sine on the circle. On smooth convex data
-(Burgers sine) MC matches or beats fronttrack down to $10^{-4}$. On $u^3$, MC converges to
+at $L^1$ error $10^{-4}$ fronttrack is about 550× faster on the Burgers box and
+280× faster on the nonconvex $u^3$ sine on the circle. On smooth convex data
+(Burgers sine) MC ties with fronttrack down to about $10^{-3}$; fronttrack is about
+2× faster at $10^{-4}$ and 10× at $10^{-5}$. On $u^3$, MC converges to
 an entropy-violating solution. Timings are machine dependent. Re-running needs
 Clawpack and a Fortran compiler; see the script's docstring.
 
