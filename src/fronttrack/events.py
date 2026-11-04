@@ -6,18 +6,28 @@ anchor time ``t0``; the position at time t is ``x + speed * (t - t0)``. Only
 the fronts created at an event get new anchors, so surviving fronts need no
 position update during a collision.
 
-Predicted collisions sit in a binary heap. Front i owns the prediction for
-the gap to its right neighbour. Whenever that neighbour changes, front i's
-``version`` is bumped and a new prediction pushed; the old heap entry still
-exists but no longer matches the version, so it is discarded when it reaches
-the top (lazy invalidation). A retired front is bumped the same way.
+During ``run`` the live fronts also form a doubly linked list (``prev`` and
+``next``), entered at ``self._head``. A collision replaces its cluster by
+relinking, in time proportional to the cluster wherever it sits: no other
+front moves in memory, as it would when splicing a Python list.
 
-When ``run`` returns, or raises, every front is moved to its anchor at the
-current time again, so ``Front.x`` is correct whenever a user reads it.
+Predicted collisions sit in a binary heap. A front owns the prediction for
+the gap to its right neighbour, and the heap entry holds the owner itself, so
+an event needs no search to find it. Whenever that neighbour changes, the
+owner's ``version`` is bumped and a new prediction pushed; the old heap entry
+still exists but no longer matches the version, so it is discarded when it
+reaches the top (lazy invalidation). A retired front is bumped the same way.
+
+When ``run`` returns, or raises, the stored front list is rebuilt from the
+links (in place, so references to it stay valid), the links are cleared, and
+every front is moved to its anchor at the current time again: ``Front.x`` is
+correct whenever a user reads it. Between runs that list is authoritative;
+edits made to it are picked up when the next ``run`` relinks. Code that reads
+``fronts`` during a run (a subclass hook, say) gets a fresh list built from the
+links, at O(F) cost per read; positions in it are anchors, not current.
 """
 
-from bisect import bisect_left
-from itertools import count
+from itertools import count, pairwise
 import heapq
 import math
 
@@ -25,13 +35,28 @@ import math
 class AnchoredEventDriver:
     """Shared ``run`` loop. Subclasses supply the geometry of one domain.
 
-    Required attributes: ``fronts`` (ordered list), ``time``, ``event_count``,
-    ``max_events``, ``record_history``, ``segments``. Required methods:
-    ``_pair(i)`` -> (left, right, gap) or None, ``_resolve_cluster(i)``,
-    ``_record_path(x0, t0, speed, t1)`` and ``_normalize()``.
+    Required attributes: ``collection`` (its ``fronts`` list is the ordered
+    front list between runs), ``time``, ``event_count``, ``max_events``,
+    ``record_history``, ``segments``. Required methods:
+    ``_pair(front)`` -> (front, right, gap) or None, ``_resolve_cluster(front)``,
+    ``_record_path(x0, t0, speed, t1)`` and ``_normalize()``. ``_cyclic`` says
+    whether the last front's right neighbour is the first one.
     """
 
     _event_limit_message = "Event limit reached; inspect data or raise max_events"
+    _cyclic = False
+    _running = False  # True while the links, not the list, are authoritative.
+
+    @property
+    def fronts(self):
+        """Live fronts in spatial order. Use snapshot() for an editable copy.
+
+        Between runs this is the stored list itself. During ``run`` (for
+        example from a subclass hook) it is a fresh list built from the links.
+        """
+        if self._running:
+            return list(self._live())
+        return self.collection.fronts
 
     # ------------------------------------------------------------ anchors
     def _position(self, front):
@@ -39,15 +64,21 @@ class AnchoredEventDriver:
         return front.x + front.speed * (self.time - front.t0)
 
     def _retire(self, front):
-        """Invalidate a front's queued prediction and record its final path."""
+        """Invalidate a front's queued prediction, record its final path, unlink it."""
         front.version += 1
         if self.record_history and self.time > front.t0:
             self._record_path(front.x, front.t0, front.speed, self.time)
+        front.prev = front.next = None
 
     def _settle(self):
-        """Move every anchor to the current time; afterwards ``x`` is exact."""
+        """Rebuild ``fronts`` from the links and move every anchor to now."""
+        live = list(self._live())
+        self.collection.fronts[:] = live
+        for front in live:
+            front.prev = front.next = None
+        self._head, self._count, self._running = None, 0, False
         t, record = self.time, self.record_history
-        for front in self.fronts:
+        for front in live:
             if front.t0 != t:
                 if record and t > front.t0:
                     self._record_path(front.x, front.t0, front.speed, t)
@@ -58,27 +89,68 @@ class AnchoredEventDriver:
     def _normalize(self):
         """Hook for a common coordinate shift after settling (circle only)."""
 
+    # -------------------------------------------------------------- links
+    def _link(self):
+        """Link ``fronts`` in list order; afterwards the links are authoritative."""
+        fronts = self.collection.fronts
+        for left, right in pairwise(fronts):
+            left.next, right.prev = right, left
+        if fronts:
+            if self._cyclic:
+                fronts[-1].next, fronts[0].prev = fronts[0], fronts[-1]
+            else:
+                fronts[0].prev = fronts[-1].next = None
+        self._head = fronts[0] if fronts else None
+        self._count = len(fronts)
+        self._running = True
+
+    def _live(self):
+        """Live fronts in order, starting at the head."""
+        front = self._head
+        for _ in range(self._count):
+            yield front
+            front = front.next
+
+    @staticmethod
+    def _chain(fronts):
+        """Link consecutive fronts; None entries mark open ends."""
+        for left, right in pairwise(fronts):
+            if left is not None:
+                left.next = right
+            if right is not None:
+                right.prev = left
+
+    @staticmethod
+    def _span(first, last):
+        """The linked fronts from first to last, inclusive."""
+        fronts = [first]
+        while fronts[-1] is not last:
+            fronts.append(fronts[-1].next)
+        return fronts
+
     # -------------------------------------------------------------- queue
     def _start_queue(self):
-        """Anchor all fronts now and predict every adjacent pair, O(F log F).
+        """Anchor and link all fronts now and predict every adjacent pair.
 
         Rebuilt at the start of every ``run`` so edits made to ``fronts``
         between runs are respected, exactly as the old full rescan did.
         """
         t = self.time
-        for front in self.fronts:
+        fronts = self.collection.fronts
+        for front in fronts:
             front.t0 = t
         self._heap, self._seq = [], count()
-        self._refresh(range(len(self.fronts)))
+        self._link()
+        self._refresh(fronts)
 
-    def _refresh(self, indices):
-        """Replace the predictions owned by the fronts at these indices."""
+    def _refresh(self, fronts):
+        """Replace the predictions owned by these fronts (None entries skipped)."""
         heap, seq, t = self._heap, self._seq, self.time
-        for i in indices:
-            if not 0 <= i < len(self.fronts):
+        for front in fronts:
+            if front is None:
                 continue
-            self.fronts[i].version += 1
-            pair = self._pair(i)
+            front.version += 1
+            pair = self._pair(front)
             if pair is None:
                 continue
             left, right, gap = pair
@@ -94,38 +166,16 @@ class AnchoredEventDriver:
     def _next_event(self):
         """Earliest valid prediction as (time, owner front), or (inf, None)."""
         heap = self._heap
-        if len(heap) > 4 * len(self.fronts) + 64:
+        if len(heap) > 4 * self._count + 64:
             # Too many stale entries: rebuild from the live pairs.
             heap.clear()
-            self._refresh(range(len(self.fronts)))
+            self._refresh(self._live())
         while heap:
             t, _, _, front, version = heap[0]
             if front.version == version:
                 return t, front
             heapq.heappop(heap)
         return math.inf, None
-
-    def _locate(self, front):
-        """Index of a live front: binary search on positions, then a local walk.
-
-        Positions at the current time are sorted up to roundoff. Fronts that
-        roundoff can misorder nearly coincide, so the walk outward from the
-        bisection point meets the target after a few steps.
-        """
-        fronts, t = self.fronts, self.time
-        i = bisect_left(fronts, self._position(front),
-                        key=lambda f: f.x + f.speed * (t - f.t0))
-        lo, hi, n = i - 1, i, len(fronts)
-        while lo >= 0 or hi < n:
-            if hi < n:
-                if fronts[hi] is front:
-                    return hi
-                hi += 1
-            if lo >= 0:
-                if fronts[lo] is front:
-                    return lo
-                lo -= 1
-        raise RuntimeError("Queued front is missing from the front list")
 
     # ---------------------------------------------------------------- run
     def run(self, final_time):
@@ -149,7 +199,7 @@ class AnchoredEventDriver:
                     raise RuntimeError(self._event_limit_message)
                 heapq.heappop(self._heap)
                 self.time = max(self.time, t)
-                self._resolve_cluster(self._locate(front))
+                self._resolve_cluster(front)
                 # A separate collision at the same time is the next heap entry.
         finally:
             self._settle()

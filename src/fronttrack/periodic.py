@@ -64,6 +64,7 @@ class PeriodicFrontTracker(AnchoredEventDriver):
     absolute time. Live fronts are internal; snapshot() returns copies.
     """
     _event_limit_message = "Event limit reached; inspect or increase max_events"
+    _cyclic = True
 
     def __init__(self, flux, positions, states, *, domain=None,
                  position_tol=1e-12, max_events=100000, record_history=False):
@@ -123,25 +124,25 @@ class PeriodicFrontTracker(AnchoredEventDriver):
 
     @property
     def fronts(self):
-        """Live fronts in cyclic order on the current lift. Do not modify."""
-        return self.collection.fronts
+        """Live fronts in cyclic order on the current lift. Do not modify.
 
-    def _pair(self, i):
-        """(left, right, gap now) for the pair owned by front i, or None.
+        During ``run`` this is a fresh list built from the links (see events.py).
+        """
+        return super().fronts
+
+    def _pair(self, front):
+        """(front, right neighbour, gap now) for the pair front owns, or None.
 
         Same closing-speed test as the real-line driver, but adjacency is
-        cyclic: the last front's right neighbour is the first front, one
-        circumference further along. Only that wraparound pair needs +L: the
-        lift is ordered and spans at most one circumference.
+        cyclic: the last front's right neighbour is the first front (the
+        head), one circumference further along. Only that wraparound pair
+        needs +L: the lift is ordered and spans at most one circumference.
         """
-        fronts = self.fronts
-        n = len(fronts)
-        if n < 2 or not 0 <= i < n:
+        if self._count < 2:
             return None
-        left = fronts[i]
-        right = fronts[i + 1] if i + 1 < n else fronts[0]
-        gap = self._position(right) - self._position(left)
-        return left, right, gap + (self.domain.length if i + 1 == n else 0.0)
+        right = front.next
+        gap = self._position(right) - self._position(front)
+        return front, right, gap + (self.domain.length if right is self._head else 0.0)
 
     def _record_path(self, x0, t0, speed, t1):
         """Record a straight path, split at chart seams (no false diagonals)."""
@@ -174,55 +175,68 @@ class PeriodicFrontTracker(AnchoredEventDriver):
                 for front in self.fronts:
                     front.x -= shift
 
-    def _resolve_cluster(self, pair):
-        """Replace the collision cluster containing ``pair`` and its neighbour.
+    def _resolve_cluster(self, front):
+        """Replace the collision cluster containing front and its right neighbour.
 
         Runs at the collision time. As on the line, the new Riemann problem
-        uses only the cluster's two exterior states.
-        Scan cyclic indices on one lift, then remove a seam-spanning cluster
-        in two slices so each surviving front moves at most once.
+        uses only the cluster's two exterior states. Positions are compared on
+        one lift: stepping right from the last front onto the head adds L,
+        stepping left from the head onto the last front subtracts L.
+
+        A cluster that crosses the seam is expressed on the lift of its first
+        (leftmost) front, and the head moves to the first front after it, so
+        the new fan sits at the end of the cyclic order. That keeps the lift
+        ordered without shifting any other front.
         """
-        fronts, length, position = self.fronts, self.domain.length, self._position
-        n = len(fronts)
-
-        def lifted_position(index):
-            turns, i = divmod(index, n)
-            return position(fronts[i]) + turns * length
-
-        first, last = pair, pair + 1
-        x = (lifted_position(first) + lifted_position(last)) / 2
+        length, position, head, n = self.domain.length, self._position, self._head, self._count
+        first, last = front, front.next
+        first_shift, last_shift = 0.0, (length if last is head else 0.0)
+        x = ((position(first) + first_shift) + (position(last) + last_shift)) / 2
         # The grouping tolerance is local to the circle, independent of how
         # many periods the fronts have travelled together.
         tol = self.position_tol + 16 * np.finfo(float).eps * length
-        while last - first + 1 < n and abs(lifted_position(first - 1) - x) <= tol:
-            first -= 1
-        while last - first + 1 < n and abs(lifted_position(last + 1) - x) <= tol:
-            last += 1
+        size = 2
+        while size < n:
+            shift = first_shift - length if first is head else first_shift
+            if abs((position(first.prev) + shift) - x) > tol:
+                break
+            first, first_shift, size = first.prev, shift, size + 1
+        while size < n:
+            shift = last_shift + length if last.next is head else last_shift
+            if abs((position(last.next) + shift) - x) > tol:
+                break
+            last, last_shift, size = last.next, shift, size + 1
 
-        if first < 0:
-            # Insert outgoing fronts at the tail, on the surviving list's lift.
-            first += n
-            last += n
-            x += length
-        self._constant_state = fronts[first].iL
-        outgoing = resolve_interaction(fronts[first], fronts[last % n], self.flux)
-        for front in outgoing:
-            front.x, front.t0 = x, self.time
-        if last >= n:
-            prefix = last - n + 1
-            for front in fronts[:prefix]:
-                self._retire(front)
-            del fronts[:prefix]
-            first -= prefix
-            last = len(fronts) - 1
-        for front in fronts[first:last + 1]:
-            self._retire(front)
-        fronts[first:last + 1] = outgoing
+        crosses_seam = first_shift != 0.0 or last_shift != 0.0
+        if first_shift:
+            x += length  # Re-express the event on the first front's lift.
+        self._constant_state = first.iL
+        outgoing = resolve_interaction(first, last, self.flux)
+        for new in outgoing:
+            new.x, new.t0 = x, self.time
+        before, after = first.prev, last.next
+        cluster = self._span(first, last)
+        if crosses_seam:
+            # Retire the head side first, then the tail side, in list order.
+            k = next(i for i, old in enumerate(cluster) if old is head)
+            cluster = cluster[k:] + cluster[:k]
+        for old in cluster:
+            self._retire(old)
+        self._count += len(outgoing) - size
         self.event_count += 1
-        n = len(fronts)
-        if n:
-            # New fronts and the cyclic left neighbour own changed pairs.
-            self._refresh({k % n for k in range(first - 1, first + len(outgoing))})
+        if size == n:
+            # The whole circle collided: the fan (possibly empty) is all there is.
+            self._chain([*outgoing, *outgoing[:1]])
+            self._head = outgoing[0] if outgoing else None
+            self._refresh(outgoing)
+            return
+        self._chain([before, *outgoing, after])
+        if crosses_seam:
+            self._head = after
+        elif first is head:
+            self._head = outgoing[0] if outgoing else after
+        # New fronts and the cyclic left neighbour own changed pairs.
+        self._refresh([before, *outgoing])
 
     def sample(self, x):
         """Right-continuous values at any finite coordinates (wrapped), same shape."""

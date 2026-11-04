@@ -166,7 +166,7 @@ names (`from fronttrack import DiscreteFlux, FrontTracker, solve_riemann`).
 | `riemann.py` | Construct the entropy hull for one jump | `solve_riemann(iL, iR, flux)` |
 | `fronts.py` | Store moving jumps and initialize all initial Riemann problems | `Front`, `FrontCollection`, `initial_fronts` |
 | `interactions.py` | Find the earliest adjacent collision and construct outgoing waves | `next_interaction`, `resolve_interaction` |
-| `events.py` | Shared event loop: anchored fronts and a priority queue of predicted collisions | internal base of both drivers |
+| `events.py` | Shared event loop: anchored, linked fronts and a priority queue of predicted collisions | internal base of both drivers |
 | `solver.py` | Evolve the solution, resolve clusters, sample, integrate and record paths | `FrontTracker` |
 | `periodic.py` | The same driver on the circle: cyclic adjacency, seam collisions, whole-circle mass | `Circle`, `PeriodicFrontTracker` |
 | `main.py` (root) | Choose example data, run requested output times, save arrays/CSV/plots | CLI entry point |
@@ -399,15 +399,16 @@ introduce boundaries, and fronts outside the visible window keep evolving.
 
 Fronts are never stepped: during `run` each keeps an anchor (position and time)
 and moves in closed form, and predicted collisions of adjacent pairs wait in a
-priority queue (`events.py`). An event updates predictions for outgoing fronts and their
-left neighbor. Heap insertions and removals cost logarithmic time in the queue
-size. Total event cost also includes locating and scanning the cluster, solving
-its Riemann problem, and splicing the front list. A Riemann solve costs
+priority queue (`events.py`). During `run` the live fronts are also linked to
+their neighbours, so a collision replaces its cluster by relinking: no other
+front moves, at the periodic seam either. An event updates predictions for
+outgoing fronts and their left neighbor. Heap insertions and removals cost
+logarithmic time in the queue size; the rest of an event costs time
+proportional to its cluster plus its Riemann solve. A Riemann solve costs
 $O(\log^2 n)$ for each convex or concave run of the $n$ flux nodes it spans, plus
 one step per outgoing front, so a shock across an inflection point does not
-visit the nodes it bridges. A splice can shift a linear
-number of surviving fronts, including at the periodic seam. `run` restores every
-`Front.x` to the current time before it returns. Trajectory
+visit the nodes it bridges. `run` rebuilds the `fronts` list from the links and
+restores every `Front.x` to the current time before it returns. Trajectory
 history can also grow substantially. For large runs set `record_history=False`;
 `segments` then stays empty. Increase `max_events` from its default 100000 only
 when appropriate; hitting the limit raises an error with the simulation left at
