@@ -228,8 +228,14 @@ The library adds one shortcut. A vertex of the lower envelope must lie strictly 
 chord of *any* two nodes on either side of it, in particular its two grid neighbours. So a
 node that is clearly above the chord of its neighbours can never be a vertex. `fronttrack`
 lists the remaining candidates once per flux and the stack visits only those. For a convex
-flux a decreasing jump (a shock) then visits just its two end nodes. The envelope is
-the same, so the cell below still visits every node.
+flux a decreasing jump (a shock) then visits just its two end nodes.
+
+A nonconvex flux needs one more step. A shock that bridges an inflection would still push
+every candidate on the far side of the bridge and pop them all again. On a stretch of strictly
+convex nodes, though, the envelope touches the flux along one contiguous piece. So the library
+stack stores such a stretch as a single (first node, last node) entry and finds where the
+bridges attach by binary search, in $O(\log^2 n)$ instead of one push and pop per node.
+The envelope is the same either way, so the cell below still visits every node.
 
 "Strictly below" needs care in floating point, and the cubic shows why: see below the figure.
 

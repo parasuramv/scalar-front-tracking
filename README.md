@@ -385,7 +385,10 @@ and moves in closed form, and predicted collisions of adjacent pairs wait in a
 priority queue (`events.py`). An event updates predictions for outgoing fronts and their
 left neighbor. Heap insertions and removals cost logarithmic time in the queue
 size. Total event cost also includes locating and scanning the cluster, solving
-its Riemann problem, and splicing the front list. A splice can shift a linear
+its Riemann problem, and splicing the front list. A Riemann solve costs
+$O(\log^2 n)$ for each convex or concave run of the $n$ flux nodes it spans, plus
+one step per outgoing front, so a shock across an inflection point does not
+visit the nodes it bridges. A splice can shift a linear
 number of surviving fronts, including at the periodic seam. `run` restores every
 `Front.x` to the current time before it returns. Trajectory
 history can also grow substantially. For large runs set `record_history=False`;
