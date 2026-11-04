@@ -786,7 +786,7 @@ the $O(\delta^2)$ shock position seen in notebook 04 (§5).
 
 1. Three estimates · 2. Projecting the initial data · 3. Burgers against an exact solution ·
 4. Nearest-node rounding · 5. Shock positions · 6. A nonconvex flux · 7. Roundoff ·
-8. Try it yourself
+8. Cost against finite volumes · 9. Try it yourself
 
 *Main reference: S. S. Ghoshal and J. D. Towers, "A convergence rate result for front tracking
 approximations of conservation laws with discontinuous flux", arXiv:2509.22952 (2025). Our
@@ -1398,8 +1398,109 @@ genuine gaps measured in PR #3 were above $10^9\varepsilon S$.
 
 The derivation assumes a flux that is evaluated accurately. A flux computed by a long formula
 with cancellation can have large $k$. The measured check above is then the thing to repeat.
+"""),
+        md(r"""
+## 8. Cost against finite volumes
 
-## 8. Try it yourself
+An $O(\delta)$ rate says how the error falls as $\delta$ shrinks. What a user pays for is
+time, so the fair comparison with other methods is **work against precision**: wall time
+needed to reach a given $L^1$ error. Here front tracking meets three finite-volume solvers
+from [Clawpack](https://www.clawpack.org) (PyClaw with its Fortran kernels): first-order
+Godunov, second-order with the MC limiter, and fifth-order WENO (SharpClaw).
+
+None of them can beat first order on these problems. Shocks and kinks in the solution cap
+every scheme at $L^1$ error $O(h)$ on a mesh of width $h$, so the fifth-order scheme only
+pays more per step. What decides the race is the cost of one refinement. An explicit
+scheme on $N$ cells needs about $N$ time steps (the CFL condition), so $O(N^2)$ work for
+error $O(1/N)$. Front tracking with $F$ fronts and $E$ events does
+$O((F+E)\log F)$ work, and both counts grow like $1/\delta$ on these problems. Error
+$\varepsilon$ therefore costs about $\varepsilon^{-2}$ for a finite-volume scheme and
+about $\varepsilon^{-1}\log(1/\varepsilon)$ for front tracking, so the gap widens with
+accuracy.
+
+The measurements come from `tools/bench_clawpack.py` (it needs Clawpack and a Fortran
+compiler, so this notebook only loads its saved results). Every run is scored against an
+exact solution, except the nonconvex sine problem, which has no closed form; there the
+reference is front tracking at a much smaller $\delta$, cross-checked by Clawpack's Godunov
+scheme. Godunov is monotone, so it converges to the entropy solution on its own. Timings
+depend on the machine; compare methods within one figure.
+"""),
+        code(r'''
+import json, math, urllib.request
+NAME = "docs/benchmarks/clawpack.json"
+for base in (Path.cwd(), Path.cwd().parent):
+    if (base / NAME).is_file():
+        bench = json.loads((base / NAME).read_text())
+        break
+else:  # Colab without a checkout: fetch the saved results.
+    bench = json.load(urllib.request.urlopen(f"https://raw.githubusercontent.com/{REPO}/main/{NAME}"))
+
+LABEL = {"fronttrack": "fronttrack", "classic_godunov": "Clawpack Godunov",
+         "classic_mc": "Clawpack classic MC", "sharpclaw_weno5": "SharpClaw WENO5"}
+COLOR = {"fronttrack": C_POLY, "classic_mc": C_ENV, "sharpclaw_weno5": "#1baf7a",
+         "classic_godunov": C_FLUX}
+
+def time_to(rows, target):
+    """Wall time to reach `target`, interpolated in log-log; None if never reached."""
+    for i, r in enumerate(rows):
+        if r["err"] <= target:
+            if i == 0:
+                return r["time"]
+            q = rows[i - 1]
+            w = math.log(q["err"] / target) / math.log(q["err"] / r["err"])
+            return q["time"] ** (1 - w) * r["time"] ** w
+    return None
+
+fig, axes = plt.subplots(2, 2, figsize=(11, 8), constrained_layout=True)
+for ax, rec in zip(axes.flat, bench["problems"].values()):
+    for m, rows in rec["methods"].items():
+        ax.loglog([r["err"] for r in rows], [r["time"] for r in rows], "o-", ms=4,
+                  color=COLOR[m], label=LABEL[m])
+    ax.invert_xaxis()
+    ax.set(title=rec["title"], xlabel="$L^1$ error (→ more accurate)", ylabel="wall time, s")
+axes.flat[0].legend(frameon=False, fontsize=9)
+plt.show()
+
+meta = bench["meta"]
+print(f"recorded {meta['date']}, Clawpack {meta['clawpack']}, fronttrack {meta['fronttrack']}\n")
+print(f"{'time to reach L1 error':40s}" + "".join(f"{t:>12.0e}" for t in (1e-3, 1e-4, 1e-5)))
+for rec in bench["problems"].values():
+    print(rec["title"])
+    for m, rows in rec["methods"].items():
+        cells = [time_to(rows, t) for t in (1e-3, 1e-4, 1e-5)]
+        print(f"  {LABEL[m]:38s}" + "".join("           –" if c is None else f"{c:11.3g}s"
+                                             for c in cells))
+'''),
+        md(r"""
+**Reading the figure** (lower right is better; timings from the run recorded above):
+
+* **Burgers, box data.** Convex flux, thousands of interactions, an exact answer. Front
+  tracking reaches $L^1$ error $10^{-4}$ in under 0.1 s; the best finite-volume solver (MC)
+  needs about half a minute, and none reached $10^{-5}$ within the time budget.
+* **Burgers, sine on the circle.** The honest contest: smooth convex data is where the MC
+  limiter is at its best. MC matches front tracking, or beats it by up to 2×, down to
+  $10^{-4}$; front tracking pulls ahead only beyond that (several times faster at $10^{-5}$). The slopes tell the long-run story: about 1
+  for front tracking, about 2 for every finite-volume scheme.
+* **$u^3$ Riemann problem.** No interactions at all, so front tracking just evaluates the
+  exact Riemann solution of $f_\delta$. This panel checks the nonconvex Riemann solver more
+  than it races anyone.
+* **$u^3$, sine on the circle.** Nonconvex, with about $10^5$ interactions at the finest
+  $\delta$. Front tracking reaches $10^{-4}$ in about 0.2 s, WENO5 in about 50 s.
+
+On both $u^3$ problems the **MC curve turns vertical**: its error stalls near $4\cdot10^{-3}$
+and $10^{-3}$. That is not slow convergence. On the Riemann problem the defect behind the shock
+keeps its width while $N$ grows 16-fold, and the state behind the shock tends to about $-0.55$
+instead of $-\tfrac12$. A shock from $1$ to $-0.55$ is too strong: its chord passes below the
+graph of $u^3$, so it violates Oleinik's entropy condition. Limited second-order schemes can
+converge to such entropy-violating weak solutions when the flux is nonconvex (LeVeque 2002,
+ch. 16). Godunov's scheme, which is monotone, and WENO5 both converge, if slowly. Front tracking
+is exact for $f_\delta$ by construction, so this failure mode cannot occur.
+
+Before the Riemann solver learned to skip convex stretches of the flux (notebook 03, §4), the
+nonconvex circle cost front tracking $O(N^2)$ like the finite-volume schemes: a shock that
+bridged the inflection walked every flux node it skipped.
+
+## 9. Try it yourself
 
 Burgers with the bump-and-block data: pick $\delta$, the time and the projection. The left panel
 compares $u^\delta$ with the exact solution. The right panel shows $U-U^\delta$ with the bound $\pm C_1\delta^2$,
@@ -1456,6 +1557,8 @@ display(widgets.HBox(list(controls.values()), layout=widgets.Layout(flex_flow="r
   predicates, *Discrete Comput. Geom.* **18** (1997) 305–363. (Background on orientation tests.)
 * H. Holden, N. H. Risebro, *Front Tracking for Hyperbolic Conservation Laws*, 2nd ed.,
   Springer (2015).
+* R. J. LeVeque, *Finite Volume Methods for Hyperbolic Problems*, Cambridge University Press
+  (2002). Clawpack: www.clawpack.org.
 
 ---
 **Next:** *06 · Stability*: $L^1$ contraction, total variation, and how many fronts there can be.

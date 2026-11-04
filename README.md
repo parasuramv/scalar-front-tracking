@@ -37,7 +37,7 @@ own in Jupyter or Google Colab.
 | --- | --- | --- |
 | [03 · The Riemann problem](notebooks/03_riemann_problem.ipynb) | Entropy solution of a single jump from the convex and concave envelopes of the polygonal flux | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/03_riemann_problem.ipynb) |
 | [04 · Interactions](notebooks/04_interactions.ipynb) | The event loop, collisions, front and event counts | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/04_interactions.ipynb) |
-| [05 · Convergence](notebooks/05_convergence.ipynb) | Rates as δ → 0 in L¹ and for the primitive, projection of initial data, roundoff | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/05_convergence.ipynb) |
+| [05 · Convergence](notebooks/05_convergence.ipynb) | Rates as δ → 0 in L¹ and for the primitive, projection of initial data, roundoff, cost against Clawpack's finite-volume solvers | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/05_convergence.ipynb) |
 | [06 · Stability](notebooks/06_stability.ipynb) | L¹ contraction and where it comes from, total variation, front counts, failure of L² and L∞ stability | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/06_stability.ipynb) |
 | [07 · Front tracking on the circle](notebooks/07_periodic_domain.ipynb) | Cyclic adjacency and seam collisions, agreement with the line solver on a periodic cover, $1/t$ decay versus the N-wave | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/parasuramv/scalar-front-tracking/blob/main/notebooks/07_periodic_domain.ipynb) |
 
@@ -308,6 +308,23 @@ collinear chords under roundoff (uniform and nonuniform grids, affine shifts of
 the flux, chords created by collisions), strictly separating fans,
 single and simultaneous collisions, annihilation, constant solutions, restarting
 at output times, mass conservation, total variation, and rarefaction refinement.
+
+### Cost against finite volumes
+
+![Wall time against L1 error: fronttrack and three Clawpack solvers on four problems](docs/benchmarks/clawpack.png)
+
+`tools/bench_clawpack.py` measures wall time against $L^1$ error for fronttrack
+and three solvers from [Clawpack](https://www.clawpack.org)'s PyClaw with Fortran
+kernels: Godunov, second order with the MC limiter, and WENO5. The figure above
+comes from the saved results in `docs/benchmarks/clawpack.json`; notebook 05, §8
+explains it. Every method is first order on these problems, because shocks and
+kinks cap the accuracy. An explicit scheme pays $O(N^2)$ for error $O(1/N)$;
+front tracking pays roughly $O(N \log N)$. The gap therefore widens with accuracy:
+at $L^1$ error $10^{-4}$ fronttrack is about 400× faster on the Burgers box and
+250× faster on the nonconvex $u^3$ sine on the circle. On smooth convex data
+(Burgers sine) MC matches or beats fronttrack down to $10^{-4}$. On $u^3$, MC converges to
+an entropy-violating solution. Timings are machine dependent. Re-running needs
+Clawpack and a Fortran compiler; see the script's docstring.
 
 ## Periodic domains: the circle
 
