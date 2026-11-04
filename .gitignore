@@ -11,3 +11,4 @@ build/
 dist/
 .virtual_documents/
 CLAUDE.md
+pyclaw.log

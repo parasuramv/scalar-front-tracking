@@ -158,6 +158,49 @@ class CandidateFilterTests(unittest.TestCase):
                     self.assertEqual(solve_riemann(left, right, flux),
                                      full_scan_riemann(left, right, flux), (left, right))
 
+    def test_runs_identical_to_full_scan_on_fine_grids(self):
+        """Long strictly convex/concave runs take the binary-search path."""
+        rng = np.random.default_rng(5)
+        cases = [
+            (lambda u: u**3, np.linspace(-1, 1, 4097)),
+            (lambda u: u**5 - u**3, np.linspace(-1.2, 1.2, 3001)),  # several inflections
+            (lambda u: np.sin(7*u), np.linspace(-1, 1, 2001)),
+            (lambda u: u*u / (u*u + 0.5*(1 - u)**2), np.linspace(0, 1, 2001)),
+        ]
+        for f, grid in cases:
+            flux = DiscreteFlux(f, grid)
+            for left, right in rng.integers(0, len(grid), (400, 2)).tolist():
+                self.assertEqual(solve_riemann(left, right, flux),
+                                 full_scan_riemann(left, right, flux), (left, right))
+
+    def test_inflection_shock_is_output_sensitive(self):
+        """A shock bridging u**3's inflection must not walk the concave side.
+
+        The upper envelope from -1/2 to 9/10 follows the flux from -1/2 to
+        -9/20 and then takes one chord. All the nodes between -9/20 and 0 are
+        candidates; pushing them one by one would read the grid about 2n times.
+        """
+        from fronttrack.riemann import _strict_runs
+        n = 2**16 + 1
+        grid = np.linspace(-1, 1, n)
+        flux = DiscreteFlux(lambda u: u**3, grid)
+        iL, iR = int(np.searchsorted(grid, 0.9)), int(np.searchsorted(grid, -0.5))
+        reads = 0
+
+        class CountingList(list):
+            def __getitem__(self, i):
+                nonlocal reads
+                reads += 1
+                return list.__getitem__(self, i)
+        lower, upper, states, values = _strict_runs(flux)
+        flux._strict_run_cache = (lower, upper, CountingList(states), CountingList(values))
+        waves = solve_riemann(iL, iR, flux)
+        self.assertEqual(waves, full_scan_riemann(iL, iR, flux))
+        # The fan from -1/2 to -9/20 is real output: 4 reads per speed. The
+        # search itself must stay polylogarithmic.
+        self.assertLess(len(waves), n // 20)
+        self.assertLess(reads - 4 * len(waves), 3000)
+
     def test_convex_shock_visits_only_endpoints(self):
         """For a strictly convex flux no interior node can be on the upper envelope."""
         from fronttrack.riemann import _hull_candidates
