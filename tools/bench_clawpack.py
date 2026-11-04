@@ -203,6 +203,7 @@ def measure(args):
         except ImportError:
             sys.exit("Clawpack is not installed; see the docstring, or pass --skip-clawpack.")
     out = dict(meta=meta(args), problems={})
+    warm = set()
     for name in names:
         p = PROBLEMS[name]
         print(name, flush=True)
@@ -227,6 +228,9 @@ def measure(args):
             else:
                 run = lambda k, m=method: run_clawpack(m, p, 2**k, x, truth)  # noqa: E731
                 levels = range(6, 21)
+            if method not in warm:
+                run(levels[0])  # Untimed: the first call loads modules and kernels.
+                warm.add(method)
             record["methods"][method] = sweep(LABELS[method], run, levels, args.budget)
         out["problems"][name] = record
         # Save after every problem so a long run can be inspected or resumed.

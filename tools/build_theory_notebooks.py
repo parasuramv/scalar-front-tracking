@@ -1478,9 +1478,9 @@ for rec in bench["problems"].values():
   tracking reaches $L^1$ error $10^{-4}$ in under 0.1 s; the best finite-volume solver (MC)
   needs about half a minute, and none reached $10^{-5}$ within the time budget.
 * **Burgers, sine on the circle.** The honest contest: smooth convex data is where the MC
-  limiter is at its best. MC matches front tracking, or beats it by up to 2×, down to
-  $10^{-4}$; front tracking pulls ahead only beyond that (several times faster at $10^{-5}$). The slopes tell the long-run story: about 1
-  for front tracking, about 2 for every finite-volume scheme.
+  limiter is at its best. The two tie down to about $10^{-3}$; front tracking is about twice
+  as fast at $10^{-4}$ and about ten times as fast at $10^{-5}$. The slopes tell the long-run
+  story: about 1 for front tracking, about 2 for every finite-volume scheme.
 * **$u^3$ Riemann problem.** No interactions at all, so front tracking just evaluates the
   exact Riemann solution of $f_\delta$. This panel checks the nonconvex Riemann solver more
   than it races anyone.
